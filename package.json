@@ -1,0 +1,49 @@
+{
+  "name": "autopista-mcp",
+  "version": "1.0.0",
+  "description": "MCP server para consultar Mixpanel analytics y HubSpot CRM",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "autopista-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "TRANSPORT=http node dist/index.js",
+    "dev": "tsc --watch",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "mixpanel",
+    "hubspot"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@hubspot/api-client": "^13.4.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "compression": "^1.8.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
+    "jose": "^6.2.1",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.8.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.5.0",
+    "@types/swagger-ui-express": "^4.1.8",
+    "typescript": "^5.9.3"
+  }
+}

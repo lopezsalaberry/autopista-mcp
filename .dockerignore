@@ -1,0 +1,10 @@
+node_modules
+.git
+.env
+.env.local
+.vscode
+.idea
+*.md
+dist
+coverage
+.nyc_output
