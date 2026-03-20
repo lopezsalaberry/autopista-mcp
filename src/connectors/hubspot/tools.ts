@@ -401,6 +401,41 @@ export function registerHubSpotTools(server: McpServer, client: HubSpotClient) {
     },
   );
 
+  // ── Workflows (Automation Flows) ────────────────────────
+
+  server.tool(
+    "hubspot_list_workflows",
+    "Listar todos los workflows (flujos de automatizacion) de HubSpot. Retorna ID, nombre, tipo, estado (activo/inactivo) y triggers de enrollment. Util para ver que automatizaciones existen y cuales estan activas.",
+    {
+      limit: z.number().optional().describe("Max workflows a retornar (default: 100)"),
+      after: z.string().optional().describe("Cursor de paginacion"),
+    },
+    async (args) => {
+      try {
+        const data = await client.listWorkflows(args.limit, args.after);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  server.tool(
+    "hubspot_get_workflow",
+    "Obtener un workflow especifico de HubSpot por su ID. Retorna la configuracion completa: triggers de enrollment, acciones, condiciones, delays y configuracion de re-enrollment.",
+    {
+      flowId: z.string().describe("ID del workflow en HubSpot"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getWorkflow(args.flowId);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
   // ── Custom objects & schemas ────────────────────────────
 
   server.tool(

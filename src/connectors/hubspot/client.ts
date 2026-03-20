@@ -384,6 +384,35 @@ export class HubSpotClient {
     };
   }
 
+  // ── Workflows (Automation Flows) ─────────────────────────
+
+  async listWorkflows(limit: number = 100, after?: string) {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (after) params.set("after", after);
+
+    const data = await this.apiGet(`/automation/v4/flows?${params.toString()}`);
+
+    return {
+      total: data.total ?? (data.results || []).length,
+      results: (data.results || []).map((flow: any) => ({
+        id: flow.id,
+        name: flow.name,
+        type: flow.type,
+        enabled: flow.enabled,
+        insertedAt: flow.insertedAt,
+        updatedAt: flow.updatedAt,
+        enrollmentTriggers: flow.enrollmentTriggers,
+      })),
+      paging: data.paging,
+    };
+  }
+
+  async getWorkflow(flowId: string) {
+    const data = await this.apiGet(`/automation/v4/flows/${flowId}`);
+    return data;
+  }
+
   // ── Owners ────────────────────────────────────────────────
 
   async getOwner(ownerId: string) {
