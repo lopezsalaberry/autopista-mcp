@@ -1,0 +1,7 @@
+include:
+  - project: 'pipeline/templates'
+    file: 'K8S-gitlab-ci.yml'
+
+variables:
+  MANIFEST_REPO: git@gitlab.medicus.com.ar:gitops/autopista-mcp-conf.git
+  MANIFEST_DIR: autopista-mcp-conf
