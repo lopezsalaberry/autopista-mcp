@@ -384,6 +384,162 @@ export class HubSpotClient {
     };
   }
 
+  // ── Property History ─────────────────────────────────────
+
+  async getPropertyHistory(
+    objectType: string,
+    objectId: string,
+    properties: string[],
+  ) {
+    const params = new URLSearchParams();
+    for (const p of properties) params.append("propertiesWithHistory", p);
+
+    const data = await this.apiGet(
+      `/crm/v3/objects/${objectType}/${objectId}?${params.toString()}`,
+    );
+
+    const history: Record<string, any[]> = {};
+    for (const prop of properties) {
+      history[prop] = (data.propertiesWithHistory?.[prop] || []).map((h: any) => ({
+        value: h.value,
+        timestamp: h.timestamp,
+        sourceType: h.sourceType,
+        sourceId: h.sourceId,
+        sourceLabel: h.sourceLabel,
+        updatedByUserId: h.updatedByUserId,
+      }));
+    }
+
+    return { id: data.id, properties: data.properties, history };
+  }
+
+  // ── Lists ───────────────────────────────────────────────
+
+  async searchLists(query: string, limit: number = 25) {
+    const data = await this.apiPost("/crm/v3/lists/search", {
+      query,
+      count: limit,
+    });
+
+    return {
+      total: data.total ?? (data.lists || []).length,
+      lists: (data.lists || []).map((l: any) => ({
+        listId: l.listId,
+        name: l.name,
+        size: l.size,
+        listType: l.listType,
+        createdAt: l.createdAt,
+        updatedAt: l.updatedAt,
+      })),
+    };
+  }
+
+  async getList(listId: string) {
+    const data = await this.apiGet(`/crm/v3/lists/${listId}`);
+    return {
+      listId: data.listId,
+      name: data.name,
+      size: data.size,
+      listType: data.listType,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+      filterBranch: data.filterBranch,
+    };
+  }
+
+  async getListMembers(listId: string, limit: number = 100, after?: string) {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (after) params.set("after", after);
+
+    const data = await this.apiGet(
+      `/crm/v3/lists/${listId}/memberships?${params.toString()}`,
+    );
+
+    return {
+      results: data.results || [],
+      paging: data.paging,
+    };
+  }
+
+  // ── Companies ───────────────────────────────────────────
+
+  async searchCompanies(options: SearchOptions) {
+    const filterGroups = options.filters?.length
+      ? [{ filters: options.filters.map((f) => ({ propertyName: f.propertyName, operator: f.operator, value: f.value })) }]
+      : undefined;
+
+    const response = await this.client.crm.companies.searchApi.doSearch({
+      query: options.query,
+      filterGroups: filterGroups as any,
+      properties: options.properties,
+      limit: options.limit || 10,
+      after: options.after ? String(options.after) : undefined,
+      sorts: options.sorts as any,
+    });
+
+    return {
+      total: response.total,
+      results: response.results.map((c) => ({
+        id: c.id,
+        properties: c.properties,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      })),
+      paging: response.paging,
+    };
+  }
+
+  async getCompany(id: string, properties?: string[]) {
+    const response = await this.client.crm.companies.basicApi.getById(id, properties);
+    return {
+      id: response.id,
+      properties: response.properties,
+      createdAt: response.createdAt,
+      updatedAt: response.updatedAt,
+    };
+  }
+
+  // ── Marketing Emails ────────────────────────────────────
+
+  async listMarketingEmails(limit: number = 50, after?: string) {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    if (after) params.set("after", after);
+
+    const data = await this.apiGet(
+      `/marketing/v3/emails?${params.toString()}`,
+    );
+
+    return {
+      total: data.total ?? (data.results || []).length,
+      results: (data.results || []).map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        subject: e.subject,
+        type: e.type,
+        state: e.state,
+        publishDate: e.publishDate,
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt,
+        stats: e.statistics,
+      })),
+      paging: data.paging,
+    };
+  }
+
+  async getMarketingEmail(emailId: string) {
+    const data = await this.apiGet(`/marketing/v3/emails/${emailId}`);
+    return data;
+  }
+
+  async getMarketingEmailStats(emailId: string) {
+    const data = await this.apiGet(
+      `/marketing/v3/emails/${emailId}/statistics`,
+    );
+    return data;
+  }
+
   // ── Workflows (Automation Flows) ─────────────────────────
 
   async listWorkflows(limit: number = 100, after?: string) {

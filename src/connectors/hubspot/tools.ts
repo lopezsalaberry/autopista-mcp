@@ -401,6 +401,169 @@ export function registerHubSpotTools(server: McpServer, client: HubSpotClient) {
     },
   );
 
+  // ── Property History ────────────────────────────────────
+
+  server.tool(
+    "hubspot_get_property_history",
+    "Obtener el historial de cambios de propiedades de un contacto o deal. Muestra quien cambio el valor, cuando, desde que fuente (workflow, API, manual) y el valor anterior. Ideal para diagnosticar problemas de asignacion, cambios de etapa, y bugs de workflows.",
+    {
+      objectType: z.string().describe("Tipo de objeto: 'contacts' o 'deals'"),
+      objectId: z.string().describe("ID del objeto en HubSpot"),
+      properties: z.array(z.string()).describe("Propiedades de las que se quiere ver el historial (ej: ['hubspot_owner_id', 'hs_lead_status', 'dealstage'])"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getPropertyHistory(args.objectType, args.objectId, args.properties);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  // ── Lists ─────────────────────────────────────────────
+
+  server.tool(
+    "hubspot_search_lists",
+    "Buscar listas de HubSpot por nombre. Retorna ID, nombre, tamaño, tipo (DYNAMIC/STATIC) y fechas. Util para encontrar listas de enrollment de workflows, segmentos, etc.",
+    {
+      query: z.string().describe("Texto a buscar en el nombre de la lista"),
+      limit: z.number().optional().describe("Max resultados (default: 25)"),
+    },
+    async (args) => {
+      try {
+        const data = await client.searchLists(args.query, args.limit);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  server.tool(
+    "hubspot_get_list",
+    "Obtener una lista especifica de HubSpot por su ID. Retorna nombre, tamaño, tipo y filtros de la lista.",
+    {
+      listId: z.string().describe("ID de la lista en HubSpot"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getList(args.listId);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  server.tool(
+    "hubspot_get_list_members",
+    "Obtener los contactos que pertenecen a una lista de HubSpot. Retorna IDs de contactos con paginacion.",
+    {
+      listId: z.string().describe("ID de la lista en HubSpot"),
+      limit: z.number().optional().describe("Max miembros a retornar (default: 100)"),
+      after: z.string().optional().describe("Cursor de paginacion"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getListMembers(args.listId, args.limit, args.after);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  // ── Companies ─────────────────────────────────────────
+
+  server.tool(
+    "hubspot_search_companies",
+    "Buscar empresas en HubSpot CRM. Puede buscar por texto libre o con filtros estructurados. Util para investigar cuentas de empresas, PYMES y corporativos.",
+    {
+      query: z.string().optional().describe("Busqueda de texto libre"),
+      filters: z.array(filterSchema).optional().describe("Filtros estructurados"),
+      properties: z.array(z.string()).optional().describe("Propiedades a retornar (ej: ['name','domain','industry','hubspot_owner_id'])"),
+      limit: z.number().optional().describe("Max resultados (default: 10)"),
+      after: z.string().optional().describe("Cursor de paginacion"),
+    },
+    async (args) => {
+      try {
+        const data = await client.searchCompanies(args);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  server.tool(
+    "hubspot_get_company",
+    "Obtener una empresa especifica de HubSpot por su ID.",
+    {
+      id: z.string().describe("ID de la empresa en HubSpot"),
+      properties: z.array(z.string()).optional().describe("Propiedades a retornar"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getCompany(args.id, args.properties);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  // ── Marketing Emails ──────────────────────────────────
+
+  server.tool(
+    "hubspot_list_marketing_emails",
+    "Listar emails de marketing de HubSpot. Retorna nombre, asunto, tipo, estado, fecha de envio y estadisticas (opens, clicks, bounces).",
+    {
+      limit: z.number().optional().describe("Max emails a retornar (default: 50)"),
+      after: z.string().optional().describe("Cursor de paginacion"),
+    },
+    async (args) => {
+      try {
+        const data = await client.listMarketingEmails(args.limit, args.after);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  server.tool(
+    "hubspot_get_marketing_email",
+    "Obtener un email de marketing especifico con toda su configuracion.",
+    {
+      emailId: z.string().describe("ID del email de marketing"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getMarketingEmail(args.emailId);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
+  server.tool(
+    "hubspot_get_marketing_email_stats",
+    "Obtener estadisticas de un email de marketing: envios, aperturas, clicks, bounces, unsubs, etc.",
+    {
+      emailId: z.string().describe("ID del email de marketing"),
+    },
+    async (args) => {
+      try {
+        const data = await client.getMarketingEmailStats(args.emailId);
+        return json(data);
+      } catch (e: any) {
+        return error(e.message);
+      }
+    },
+  );
+
   // ── Workflows (Automation Flows) ────────────────────────
 
   server.tool(
