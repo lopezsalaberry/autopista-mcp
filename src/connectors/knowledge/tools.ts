@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { projects, searchEvents, searchHubSpotOps } from "./data.js";
+import { projects, searchEvents, searchHubSpotOps, reportFormats } from "./data.js";
 
 function json(data: unknown): { content: Array<{ type: "text"; text: string }> } {
   return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
@@ -130,6 +130,26 @@ export function registerKnowledgeTools(server: McpServer) {
           dataFlow: r.operation.dataFlow,
         })),
       });
+    },
+  );
+
+  server.tool(
+    "medicus_report_format",
+    "Obtener las instrucciones detalladas para generar un reporte de Medicus. IMPORTANTE: Siempre consultar esta herramienta ANTES de generar un reporte de alta, investigacion de contacto, o analisis de proceso de afiliacion. Contiene el formato exacto, las queries de Mixpanel y HubSpot necesarias, y el orden de la informacion. Tipos disponibles: 'alta'.",
+    {
+      type: z.string().describe("Tipo de reporte: 'alta' (reporte de alta exitosa o fallida)"),
+    },
+    async (args) => {
+      const format = reportFormats[args.type];
+      if (!format) {
+        const available = Object.keys(reportFormats).join(", ");
+        return {
+          content: [{ type: "text", text: `Tipo de reporte '${args.type}' no encontrado. Tipos disponibles: ${available}` }],
+          isError: true,
+        };
+      }
+
+      return json(format);
     },
   );
 

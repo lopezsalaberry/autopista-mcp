@@ -1,3 +1,91 @@
+export interface ReportFormat {
+  name: string;
+  description: string;
+  instructions: string[];
+  mixpanelQueries: string[];
+  hubspotQueries: string[];
+}
+
+export const reportFormats: Record<string, ReportFormat> = {
+  "alta": {
+    name: "Reporte de Alta (exitosa o fallida)",
+    description: "Reporte completo del proceso de alta de un prospecto, desde la primera visita al cotizador hasta el resultado del pago. Incluye recorrido en arma-tu-plan, gestión comercial, y portal de candidatos.",
+    instructions: [
+      "1. DATOS PRINCIPALES (tabla resumen arriba de todo):",
+      "   - Link directo a HubSpot: https://app.hubspot.com/contacts/39759085/record/0-1/{contactId}",
+      "   - Nombre, DNI, edad, sexo, estado civil, teléfono, email",
+      "   - Plan elegido (nombre, ID, precio) — del evento cotizador__intencion_de_alta o cotizador__paso_5__redirect",
+      "   - Tipo de contratación (particular, monotributo, RD) — del evento cotizador__formulario_datos__complete (campo tipo_trabajo)",
+      "   - Modalidad (individual, grupo familiar) — del evento proceso_portal_express (campo modalidad)",
+      "   - Flujo del portal (express vs normal, particular vs RD) — del evento proceso_portal_express (campo tipo_flujo)",
+      "   - Cartilla elegida — del evento cotizador__tipo_cartilla__select (campo cartilla_tipo)",
+      "   - Plan mujer — del evento cotizador__paso4_view__portal o paso_5__redirect",
+      "   - Dispositivo, ubicación, zona, AB test",
+      "",
+      "2. RECORRIDO COMPLETO EN ARMA TU PLAN (cotizador):",
+      "   Buscar TODAS las sesiones, no solo la del día del alta.",
+      "   Para encontrar eventos pre-verificación (usan device_id anónimo):",
+      "   a) Buscar por email en cotizador__envio_codigo_verificacion → obtener device_id",
+      "   b) Buscar por ese device_id para obtener eventos anteriores (paso_1, paso_2, paso_3 que no tienen email)",
+      "   c) Puede haber múltiples sesiones en días diferentes y dispositivos diferentes",
+      "   Incluir para cada sesión:",
+      "   - Fecha y dispositivo (desktop/mobile)",
+      "   - Referrer y UTMs (google.com, medicus.com.ar, directo)",
+      "   - Cada paso del cotizador con timestamp",
+      "   - Cartilla seleccionada y si cambió entre opciones",
+      "   - Si hizo clic en Contactarse o Prefiero que me llamen",
+      "   - Intención de alta: plan, precio, origen del clic (boton_sidebar, etc.)",
+      "   - Redirect al portal: URL express y negocio_id",
+      "",
+      "3. GESTIÓN COMERCIAL (HubSpot):",
+      "   - Conversaciones WhatsApp (hubspot_get_contact_communications) — incluir texto de los mensajes",
+      "   - Llamadas (hubspot_get_contact_calls)",
+      "   - Emails (hubspot_get_contact_emails)",
+      "   - Notas de asesores (hubspot_get_contact_notes)",
+      "   - Cronología completa con nombre del asesor y contenido de cada interacción",
+      "",
+      "4. RECORRIDO COMPLETO EN PORTAL DE CANDIDATOS (Mixpanel):",
+      "   Buscar por deal ID ($user_id). Incluir TODOS los eventos:",
+      "   - Page Views ($mp_web_page_view) con referrer (especialmente returns de 4i4id y Digilogix)",
+      "   - Clicks ($mp_click) con página donde ocurrieron",
+      "   - Page Leaves ($mp_page_leave)",
+      "   - Cada paso: captura_DNI, carga_datos, Verificacion_Biometrica, DDJJ, recotizacion, resumen, Generacion_documentos, firma_solicitud, pago",
+      "   - Para cada paso: checkIn, checkOut, success, tiempo_en_proceso",
+      "   - Datos capturados en carga_datos checkOut: codigo_postal, localidad, edad, email, vigencia",
+      "   - Sesiones posteriores al alta (si volvió al portal después)",
+      "",
+      "5. CUSTOM OBJECTS DEL DEAL:",
+      "   - Integrantes (2-41300066): datos del titular y familiares, estado_en_binary, plan_mujer, preexistencias",
+      "   - DDJJ Antecedentes (2-41300045): preexistencias declaradas (si hay registros = declaró algo)",
+      "   - Medios de pago (2-46523154): forma_de_pago, estado, descripcion del resultado",
+      "",
+      "6. ESTADO ACTUAL EN HUBSPOT:",
+      "   - Deal stage, asociado_a_medicus, lead status",
+      "   - Alertas o inconsistencias encontradas (ej: tipo_trabajo diferente entre cotizador y HubSpot)",
+    ],
+    mixpanelQueries: [
+      "Buscar eventos cotizador por email: Events where properties.email == '{email}' AND event starts with 'cotizador__'",
+      "Buscar device_id del cotizador: del evento cotizador__envio_codigo_verificacion obtener $device_id",
+      "Buscar sesiones pre-verificación: Events where properties.$device_id == '{device_id}' AND event starts with 'cotizador__'",
+      "Buscar eventos del portal por deal: Events where properties.$user_id == '{dealId}'",
+      "Incluir todos los eventos: NO filtrar $mp_click, $mp_web_page_view, $mp_page_leave — son necesarios para el reporte completo",
+    ],
+    hubspotQueries: [
+      "hubspot_get_contact: con properties completas (email, dni, edad, hs_lead_status, lifecyclestage, hubspot_owner_id, canal, categoria, amba, forma_de_contratacion, etc.)",
+      "hubspot_get_contact_communications: todas las conversaciones WhatsApp/SMS",
+      "hubspot_get_contact_calls: llamadas",
+      "hubspot_get_contact_emails: emails",
+      "hubspot_get_contact_notes: notas de asesores + notas automáticas de cotización",
+      "hubspot_get_contact_deals: deals asociados",
+      "hubspot_get_deal: detalle del deal con stage",
+      "hubspot_get_deal_notes: notas del deal (incluye nota de firma digital OK)",
+      "hubspot_get_deal_custom_objects con 2-41300066 (integrantes): estado_en_binary, plan_mujer, preexistencias",
+      "hubspot_get_deal_custom_objects con 2-41300045 (DDJJ antecedentes): preexistencias declaradas",
+      "hubspot_get_deal_custom_objects con 2-46523154 (medios de pago): forma_de_pago, estado_de_pago",
+    ],
+  },
+};
+
 export interface MixpanelEvent {
   name: string;
   trigger: string;
