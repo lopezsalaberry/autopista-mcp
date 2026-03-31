@@ -1,0 +1,6 @@
+{
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/dashboard/:path*", "destination": "/api/dashboard/:path*" }
+  ]
+}
