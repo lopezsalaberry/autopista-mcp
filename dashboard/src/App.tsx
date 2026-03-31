@@ -118,10 +118,6 @@ const DEFAULT_SETTINGS: Settings = {
   vigenciaOverrides: {},
 }
 
-const MONTH_NAMES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-]
 
 function loadSettings(): Settings {
   try {
@@ -147,7 +143,7 @@ function computeGoalProgress(data: LeadsData, settings: Settings) {
 
   // Resolve per-vigencia goal: check if the period matches a vigencia with a custom goal
   let effectiveGoal = settings.goalLeads
-  for (const [month, override] of Object.entries(settings.vigenciaOverrides)) {
+  for (const [, override] of Object.entries(settings.vigenciaOverrides)) {
     if (override.goalLeads && override.from === data.period.from && override.to === data.period.to) {
       effectiveGoal = override.goalLeads
       break
@@ -277,11 +273,17 @@ function InteractiveDataSection({ data, crossData }: {
   data: LeadsData
   crossData: CrossDataRow[]
 }) {
-  const [selectedCat, setSelectedCat] = useState<string | null>(null)
+  const [selectedCat, setSelectedCatRaw] = useState<string | null>(null)
   const [selectedCanal, setSelectedCanal] = useState<string | null>(null)
 
-  // Reset canal when category changes
-  useEffect(() => { setSelectedCanal(null) }, [selectedCat])
+  // Reset canal when category changes (avoids cascading setState in useEffect)
+  const setSelectedCat = useCallback((valOrFn: string | null | ((prev: string | null) => string | null)) => {
+    setSelectedCatRaw(prev => {
+      const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn
+      if (next !== prev) setSelectedCanal(null)
+      return next
+    })
+  }, [])
 
   // ── Instant client-side aggregation from crossData ─────────
   const crossDataReady = crossData.length > 0
@@ -312,8 +314,8 @@ function InteractiveDataSection({ data, crossData }: {
       }
     }
 
-    const total = [...map.values()].reduce((s, v) => s + v.leads, 0)
-    return [...map.entries()]
+    const total = Array.from(map.values()).reduce((s, v) => s + v.leads, 0)
+    return Array.from(map.entries())
       .map(([name, v]) => ({
         value: name,
         displayName: CANAL_DISPLAY[name] || name,
@@ -355,7 +357,7 @@ function InteractiveDataSection({ data, crossData }: {
       }
     }
 
-    return [...map.entries()]
+    return Array.from(map.entries())
       .map(([name, v]) => ({
         value: name,
         displayName: name,
@@ -781,9 +783,9 @@ export default function App() {
       // Evict oldest if cache exceeds 20 entries
       if (clientCache.current.size > 20) {
         let oldestKey = '', oldestTs = Infinity
-        for (const [k, v] of clientCache.current) {
+        clientCache.current.forEach((v, k) => {
           if (v.ts < oldestTs) { oldestTs = v.ts; oldestKey = k }
-        }
+        })
         if (oldestKey) clientCache.current.delete(oldestKey)
       }
       setData(result)
