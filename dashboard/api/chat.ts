@@ -1,10 +1,22 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { CHAT_TOOLS } from "./_lib/chat/tool-definitions.js";
 import { executeTool } from "./_lib/chat/tool-executor.js";
 import { getSystemPrompt } from "./_lib/chat/system-prompt.js";
 
 export const config = { maxDuration: 120 };
+
+// Convert our tool definitions (Anthropic format) to OpenAI format
+function toOpenAITools(): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return CHAT_TOOLS.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }));
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") {
@@ -34,87 +46,85 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.end();
   }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const tools = toOpenAITools();
 
-  const anthropicMessages: Anthropic.Messages.MessageParam[] = messages.map(
-    (m) => ({
+  // Build OpenAI messages with system prompt
+  const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: getSystemPrompt() },
+    ...messages.map((m) => ({
       role: m.role as "user" | "assistant",
       content: m.content,
-    }),
-  );
+    })),
+  ];
 
   try {
     let maxIterations = 15;
 
     while (maxIterations-- > 0) {
-      const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
         max_tokens: 8192,
-        system: getSystemPrompt(),
-        messages: anthropicMessages,
-        tools: CHAT_TOOLS as Anthropic.Messages.Tool[],
+        messages: openaiMessages,
+        tools,
       });
 
-      const toolUseBlocks = response.content.filter(
-        (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use",
-      );
+      const choice = response.choices[0];
+      if (!choice) break;
 
-      if (toolUseBlocks.length === 0) {
-        // No more tool calls - send the final text response
-        const textBlocks = response.content.filter(
-          (b): b is Anthropic.Messages.TextBlock => b.type === "text",
-        );
+      const message = choice.message;
 
-        for (const block of textBlocks) {
+      // Check for tool calls
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        // Add assistant message with tool calls to conversation
+        openaiMessages.push(message);
+
+        // Execute each tool call
+        for (const toolCall of message.tool_calls) {
+          const fnName = toolCall.function.name;
+          const fnArgs = JSON.parse(toolCall.function.arguments || "{}");
+
           res.write(
-            `event: delta\ndata: ${JSON.stringify({ text: block.text })}\n\n`,
+            `event: tool_start\ndata: ${JSON.stringify({ name: fnName })}\n\n`,
           );
-        }
 
-        res.write(`event: done\ndata: {}\n\n`);
-        return res.end();
-      }
+          const startTime = Date.now();
+          let result: string;
 
-      // There are tool calls - add assistant message to conversation
-      anthropicMessages.push({ role: "assistant", content: response.content });
+          try {
+            result = await executeTool(fnName, fnArgs);
+          } catch (err) {
+            result = JSON.stringify({
+              error: err instanceof Error ? err.message : "Unknown error",
+            });
+          }
 
-      // Execute each tool and collect results
-      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
-
-      for (const toolUse of toolUseBlocks) {
-        res.write(
-          `event: tool_start\ndata: ${JSON.stringify({ name: toolUse.name })}\n\n`,
-        );
-
-        const startTime = Date.now();
-
-        try {
-          const result = await executeTool(
-            toolUse.name,
-            toolUse.input as Record<string, unknown>,
+          const duration = Date.now() - startTime;
+          res.write(
+            `event: tool_end\ndata: ${JSON.stringify({ name: fnName, duration_ms: duration })}\n\n`,
           );
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
+
+          // Add tool result to conversation
+          openaiMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
             content: result,
           });
-        } catch (err) {
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: toolUse.id,
-            content: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
-            is_error: true,
-          });
         }
 
-        const duration = Date.now() - startTime;
+        // Continue the loop - let the model process tool results
+        continue;
+      }
+
+      // No tool calls - this is the final text response
+      if (message.content) {
         res.write(
-          `event: tool_end\ndata: ${JSON.stringify({ name: toolUse.name, duration_ms: duration })}\n\n`,
+          `event: delta\ndata: ${JSON.stringify({ text: message.content })}\n\n`,
         );
       }
 
-      // Add tool results to conversation
-      anthropicMessages.push({ role: "user", content: toolResults });
+      res.write(`event: done\ndata: {}\n\n`);
+      return res.end();
     }
 
     // Exhausted iterations
