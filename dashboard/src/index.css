@@ -273,6 +273,28 @@ body { min-height: 100vh; }
   background: var(--bg-card);
 }
 
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+.sortable-th:hover {
+  color: var(--brand-primary);
+}
+.sort-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.65rem;
+  vertical-align: middle;
+}
+.sort-icon-inactive {
+  opacity: 0.3;
+}
+.sort-icon-active {
+  opacity: 1;
+  color: var(--brand-primary);
+}
+
 .data-table thead th:last-child,
 .data-table tbody td:last-child {
   text-align: right;

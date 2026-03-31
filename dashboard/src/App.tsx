@@ -132,6 +132,33 @@ function saveSettings(s: Settings): void {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s))
 }
 
+// ── Sortable table helpers ──────────────────────────────────
+type SortDir = 'asc' | 'desc'
+interface SortState<K extends string = string> { key: K; dir: SortDir }
+
+function toggleSort<K extends string>(prev: SortState<K> | null, key: K): SortState<K> {
+  if (prev?.key === key) return { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' }
+  return { key, dir: key === 'displayName' || key === 'value' ? 'asc' : 'desc' }
+}
+
+function applySortFn<T>(items: T[], sort: SortState | null): T[] {
+  if (!sort) return items
+  const { key, dir } = sort
+  return [...items].sort((a, b) => {
+    const av = (a as Record<string, unknown>)[key]
+    const bv = (b as Record<string, unknown>)[key]
+    if (typeof av === 'number' && typeof bv === 'number') return dir === 'asc' ? av - bv : bv - av
+    const as = String(av ?? '').toLowerCase()
+    const bs = String(bv ?? '').toLowerCase()
+    return dir === 'asc' ? as.localeCompare(bs) : bs.localeCompare(as)
+  })
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
+  if (!active) return <span className="sort-icon sort-icon-inactive">⇅</span>
+  return <span className="sort-icon sort-icon-active">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
 // ── Goal progress calculation ───────────────────────────────
 function computeGoalProgress(data: LeadsData, settings: Settings) {
   const from = new Date(data.period.from)
@@ -276,6 +303,8 @@ function InteractiveDataSection({ data, crossData }: {
 }) {
   const [selectedCat, setSelectedCatRaw] = useState<string | null>(null)
   const [selectedCanal, setSelectedCanal] = useState<string | null>(null)
+  const [canalSort, setCanalSort] = useState<SortState | null>(null)
+  const [campanaSort, setCampanaSort] = useState<SortState | null>(null)
 
   // Reset canal when category changes (avoids cascading setState in useEffect)
   const setSelectedCat = useCallback((valOrFn: string | null | ((prev: string | null) => string | null)) => {
@@ -436,18 +465,26 @@ function InteractiveDataSection({ data, crossData }: {
             </button>
           )}
         </div>
-        <table className="data-table">
+        <table className="data-table sortable-table">
           <thead>
             <tr>
-              <th style={{ textAlign: 'left' }}>Canal</th>
+              <th className="sortable-th" style={{ textAlign: 'left' }} onClick={() => setCanalSort(s => toggleSort(s, 'displayName'))}>
+                Canal <SortIcon active={canalSort?.key === 'displayName'} dir={canalSort?.dir} />
+              </th>
               <th style={{ textAlign: 'left', width: '30%' }}>Distribución</th>
-              <th>Leads</th>
-              <th>Conv.</th>
-              <th>% Conv.</th>
+              <th className="sortable-th" onClick={() => setCanalSort(s => toggleSort(s, 'count'))}>
+                Leads <SortIcon active={canalSort?.key === 'count'} dir={canalSort?.dir} />
+              </th>
+              <th className="sortable-th" onClick={() => setCanalSort(s => toggleSort(s, 'converted'))}>
+                Conv. <SortIcon active={canalSort?.key === 'converted'} dir={canalSort?.dir} />
+              </th>
+              <th className="sortable-th" onClick={() => setCanalSort(s => toggleSort(s, 'rate'))}>
+                % Conv. <SortIcon active={canalSort?.key === 'rate'} dir={canalSort?.dir} />
+              </th>
             </tr>
           </thead>
           <tbody>
-            {canalsToShow.map((canal, i) => (
+            {applySortFn(canalsToShow, canalSort).map((canal, i) => (
               <tr
                 key={canal.value}
                 className={`drill-row ${selectedCanal === canal.value ? 'canal-active' : ''} ${selectedCanal && selectedCanal !== canal.value ? 'canal-dimmed' : ''}`}
@@ -488,17 +525,25 @@ function InteractiveDataSection({ data, crossData }: {
           <span className="icon">📋</span> Campañas{campanaTitle ? ` — ${campanaTitle}` : ''}
         </div>
         {campanasToShow.length > 0 ? (
-          <table className="data-table">
+          <table className="data-table sortable-table">
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>Campaña</th>
-                <th>Leads</th>
-                <th>Conv.</th>
-                <th>% Conv.</th>
+                <th className="sortable-th" style={{ textAlign: 'left' }} onClick={() => setCampanaSort(s => toggleSort(s, 'displayName'))}>
+                  Campaña <SortIcon active={campanaSort?.key === 'displayName'} dir={campanaSort?.dir} />
+                </th>
+                <th className="sortable-th" onClick={() => setCampanaSort(s => toggleSort(s, 'count'))}>
+                  Leads <SortIcon active={campanaSort?.key === 'count'} dir={campanaSort?.dir} />
+                </th>
+                <th className="sortable-th" onClick={() => setCampanaSort(s => toggleSort(s, 'converted'))}>
+                  Conv. <SortIcon active={campanaSort?.key === 'converted'} dir={campanaSort?.dir} />
+                </th>
+                <th className="sortable-th" onClick={() => setCampanaSort(s => toggleSort(s, 'rate'))}>
+                  % Conv. <SortIcon active={campanaSort?.key === 'rate'} dir={campanaSort?.dir} />
+                </th>
               </tr>
             </thead>
             <tbody>
-              {campanasToShow.slice(0, 15).map(camp => (
+              {applySortFn(campanasToShow, campanaSort).slice(0, 15).map(camp => (
                 <tr key={camp.value}>
                   <td style={{ textAlign: 'left', fontWeight: 500 }}>{camp.displayName}</td>
                   <td>{fmt(camp.count)}</td>
