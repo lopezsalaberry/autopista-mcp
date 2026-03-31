@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchLeadsData } from "../lib/hubspot.js";
-import { getPreviousPeriod } from "../lib/vigencia.js";
+import { fetchLeadsData } from "../_lib/hubspot.js";
+import { getPreviousPeriod } from "../_lib/vigencia.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");

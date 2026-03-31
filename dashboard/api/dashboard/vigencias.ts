@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getAllVigencias, type VigenciaConfig } from "../lib/vigencia.js";
+import { getAllVigencias, type VigenciaConfig } from "../_lib/vigencia.js";
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");

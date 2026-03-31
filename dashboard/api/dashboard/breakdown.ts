@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchBreakdown } from "../lib/hubspot.js";
+import { fetchBreakdown } from "../_lib/hubspot.js";
 
 const VALID_DIMENSIONS = ["categoria_de_venta", "categoria", "canal", "campana"];
 

@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import Anthropic from "@anthropic-ai/sdk";
-import { CHAT_TOOLS } from "./lib/chat/tool-definitions.js";
-import { executeTool } from "./lib/chat/tool-executor.js";
-import { getSystemPrompt } from "./lib/chat/system-prompt.js";
+import { CHAT_TOOLS } from "./_lib/chat/tool-definitions.js";
+import { executeTool } from "./_lib/chat/tool-executor.js";
+import { getSystemPrompt } from "./_lib/chat/system-prompt.js";
 
 export const config = { maxDuration: 120 };
 

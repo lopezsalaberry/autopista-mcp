@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { fetchCrossData } from "../lib/hubspot.js";
+import { fetchCrossData } from "../_lib/hubspot.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");

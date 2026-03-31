@@ -6,7 +6,7 @@ import {
   reportFormats,
   searchEvents,
   searchHubSpotOps,
-} from "./knowledge-data";
+} from "./knowledge-data.js";
 
 const MAX_RESULT_LENGTH = 50_000;
 
