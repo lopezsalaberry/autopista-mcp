@@ -11,7 +11,7 @@ if (transport === "http") {
   const app = createApp();
   const port = parseInt(process.env.APP_PORT || "3000", 10);
 
-  app.listen(port, () => {
+  app.listen(port, "0.0.0.0", () => {
     logger.info({ port, transport: "http" }, `autopista-mcp HTTP server iniciado en puerto ${port}`);
     logger.info(`Swagger UI disponible en http://localhost:${port}/api-docs`);
     logger.info(`MCP endpoint en http://localhost:${port}/mcp`);
