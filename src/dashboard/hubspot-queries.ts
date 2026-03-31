@@ -173,6 +173,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
       { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
       { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
       { propertyName: "categoria", operator: "EQ", value: categoria },
+      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
     ];
 
     let after: string | undefined;
@@ -223,7 +224,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
         const campana = props.campana || "Sin campaña";
         const isConverted = props.convertido === "true";
 
-        const key = `${categoria}|${canal}|${campana}`;
+        const key = `${categoria}\x00${canal}\x00${campana}`;
         const existing = map.get(key);
         if (existing) {
           existing.leads++;
@@ -242,7 +243,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
   const result: CrossDataRow[] = [];
   for (const [key, val] of map) {
-    const [categoria, canal, campana] = key.split("|");
+    const [categoria, canal, campana] = key.split("\x00");
     result.push({ categoria, canal, campana, leads: val.leads, converted: val.converted });
   }
 
