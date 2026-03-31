@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './index.css'
+import { ChatDrawer } from './components/ChatDrawer'
 
 interface CrossDataRow {
   categoria: string
@@ -699,6 +700,7 @@ function SettingsPage({ settings, onSave, onBack, vigenciasForSettings }: {
 // ── MAIN APP ────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 export default function App() {
+  const [chatOpen, setChatOpen] = useState(false)
   const [page, setPage] = useState<Page>('dashboard')
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [vigencias, setVigencias] = useState<Vigencia[]>([])
@@ -971,6 +973,18 @@ export default function App() {
           </>
         )}
       </div>
+
+      {/* Chat FAB */}
+      {!chatOpen && (
+        <button className="chat-fab" onClick={() => setChatOpen(true)} title="Asistente Medicus">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+      )}
+
+      {/* Chat Drawer */}
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   )
 }

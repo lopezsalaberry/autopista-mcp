@@ -135,9 +135,9 @@ export function registerKnowledgeTools(server: McpServer) {
 
   server.tool(
     "medicus_report_format",
-    "Obtener las instrucciones detalladas para generar un reporte de Medicus. IMPORTANTE: Siempre consultar esta herramienta ANTES de generar un reporte de alta, investigacion de contacto, analisis de proceso de afiliacion, o consulta de metricas/funnel de conversion. Contiene el formato exacto, las queries de Mixpanel y HubSpot necesarias, y el orden de la informacion. Tipos disponibles: 'alta', 'metricas'.",
+    "Obtener las instrucciones detalladas para generar un reporte de Medicus. IMPORTANTE: Siempre consultar esta herramienta ANTES de generar un reporte de alta, investigacion de contacto, analisis de proceso de afiliacion, consulta de metricas/funnel de conversion, o consulta de MQLs. Contiene el formato exacto, las queries de Mixpanel y HubSpot necesarias, y el orden de la informacion. Tipos disponibles: 'alta', 'metricas', 'mqls'.",
     {
-      type: z.string().describe("Tipo de reporte: 'alta' (reporte de alta exitosa o fallida), 'metricas' (funnel de conversion y metricas de adquisicion)"),
+      type: z.string().describe("Tipo de reporte: 'alta' (reporte de alta exitosa o fallida), 'metricas' (funnel de conversion y metricas de adquisicion), 'mqls' (Marketing Qualified Leads con filtros de categoria, owners excluidos y edad)"),
     },
     async (args) => {
       const format = reportFormats[args.type];
