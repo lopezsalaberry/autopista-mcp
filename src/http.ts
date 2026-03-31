@@ -16,6 +16,7 @@ import { swaggerSpec } from "./shared/swagger.js";
 import { config } from "./shared/config.js";
 import { KeycloakOAuthProvider } from "./auth/keycloak-provider.js";
 import { auditLogger } from "./auth/audit-logger.js";
+import dashboardRouter from "./dashboard/dashboard-router.js";
 
 const VERSION = "1.0.0";
 
@@ -58,6 +59,9 @@ export function createApp(): express.Express {
 
   // --- Logging HTTP ---
   app.use((pinoHttp as any).default?.({ logger }) ?? (pinoHttp as any)({ logger }));
+
+  // --- Dashboard API (autenticacion propia via API key) ---
+  app.use("/api/dashboard", dashboardRouter);
 
   // --- OAuth 2.1 con Keycloak ---
   const keycloakProvider = new KeycloakOAuthProvider({

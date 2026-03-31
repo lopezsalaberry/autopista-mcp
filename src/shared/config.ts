@@ -36,6 +36,9 @@ export const config = {
   // OpenAI Whisper - Transcripcion de audios en comunicaciones (opcional)
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
 
+  // Dashboard API key (opcional - si no se define, las rutas quedan abiertas en dev)
+  DASHBOARD_API_KEY: process.env.DASHBOARD_API_KEY || "",
+
   // Keycloak OAuth 2.1 (solo requerido en modo HTTP)
   KEYCLOAK_URL: requiredForHttp("KEYCLOAK_URL"),
   KEYCLOAK_REALM: requiredForHttp("KEYCLOAK_REALM"),
