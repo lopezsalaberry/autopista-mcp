@@ -233,6 +233,9 @@ router.get("/cross-data", async (req: Request, res: Response) => {
     return;
   }
 
+  // Set a 2-minute server-side timeout for this long-running request
+  req.setTimeout(120_000);
+
   try {
     const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
     const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
@@ -253,7 +256,13 @@ router.get("/cross-data", async (req: Request, res: Response) => {
 
 // ─── Cache management ────────────────────────────────────────
 router.get("/cache/stats", (_req: Request, res: Response) => {
-  res.json(dashboardCache.stats());
+  const stats = dashboardCache.stats();
+  // Only expose size in production, not key contents
+  if (process.env.NODE_ENV === "production") {
+    res.json({ size: stats.size });
+  } else {
+    res.json(stats);
+  }
 });
 
 router.delete("/cache", (_req: Request, res: Response) => {

@@ -159,6 +159,7 @@ const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
 /**
  * Fetch ALL contacts split by category to stay under HubSpot's 10k pagination limit.
  * Groups into (categoria, canal, campana) → {leads, converted} for client-side filtering.
+ * Includes a final pass for "Sin clasificar" (contacts with no categoria set).
  */
 export async function fetchCrossData(fromMs: number, toMs: number): Promise<CrossDataRow[]> {
   const start = Date.now();
@@ -166,16 +167,11 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
   let totalContacts = 0;
   let totalPages = 0;
 
-  for (const categoria of CROSS_CATEGORIES) {
-    const filters = [
-      { propertyName: "dato_gh", operator: "EQ", value: "true" },
-      { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
-      { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
-      { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
-      { propertyName: "categoria", operator: "EQ", value: categoria },
-      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
-    ];
-
+  // Helper: paginate a single filter set and aggregate into the map
+  async function paginateCategory(
+    label: string,
+    filters: Array<Record<string, unknown>>,
+  ): Promise<void> {
     let after: string | undefined;
     let catPages = 0;
 
@@ -196,19 +192,20 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15_000), // 15s per request
         });
 
         if (res.status === 429 && attempt < 5) {
           const retryAfter = parseInt(res.headers.get("retry-after") || "3", 10);
           const delay = retryAfter * 1000 * (attempt + 1);
-          logger.warn({ attempt, delay, categoria }, "CrossData 429 — retrying");
+          logger.warn({ attempt, delay, categoria: label }, "CrossData 429 — retrying");
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
 
         if (!res.ok) {
           const errorBody = await res.text();
-          logger.error({ status: res.status, body: errorBody, categoria, page: catPages }, "CrossData page error");
+          logger.error({ status: res.status, body: errorBody, categoria: label, page: catPages }, "CrossData page error");
           throw new Error(`HubSpot API error: ${res.status}`);
         }
 
@@ -224,7 +221,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
         const campana = props.campana || "Sin campaña";
         const isConverted = props.convertido === "true";
 
-        const key = `${categoria}\x00${canal}\x00${campana}`;
+        const key = `${label}\x00${canal}\x00${campana}`;
         const existing = map.get(key);
         if (existing) {
           existing.leads++;
@@ -240,6 +237,29 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
       totalPages++;
     } while (after && catPages < 100);
   }
+
+  // Pass 1-3: Known categories (Pago, Organico, Outbound)
+  for (const categoria of CROSS_CATEGORIES) {
+    await paginateCategory(categoria, [
+      { propertyName: "dato_gh", operator: "EQ", value: "true" },
+      { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+      { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+      { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+      { propertyName: "categoria", operator: "EQ", value: categoria },
+      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+    ]);
+  }
+
+  // Pass 4: "Sin clasificar" — contacts where categoria is not set
+  // Uses NOT_HAS_PROPERTY (5 filters + 1 = 6, within limit)
+  await paginateCategory("Sin clasificar", [
+    { propertyName: "dato_gh", operator: "EQ", value: "true" },
+    { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+    { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+    { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+    { propertyName: "categoria", operator: "NOT_HAS_PROPERTY" },
+    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+  ]);
 
   const result: CrossDataRow[] = [];
   for (const [key, val] of map) {

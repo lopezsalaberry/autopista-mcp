@@ -778,6 +778,14 @@ export default function App() {
         abortRef.current.signal
       )
       clientCache.current.set(key, { data: result, ts: Date.now() })
+      // Evict oldest if cache exceeds 20 entries
+      if (clientCache.current.size > 20) {
+        let oldestKey = '', oldestTs = Infinity
+        for (const [k, v] of clientCache.current) {
+          if (v.ts < oldestTs) { oldestTs = v.ts; oldestKey = k }
+        }
+        if (oldestKey) clientCache.current.delete(oldestKey)
+      }
       setData(result)
 
       // Lazy-fetch cross-data AFTER main data loads (separate rate limit window)

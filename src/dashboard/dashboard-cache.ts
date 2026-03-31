@@ -10,6 +10,11 @@ interface CacheEntry<T = unknown> {
 
 export class DashboardCache {
   private store = new Map<string, CacheEntry>();
+  private readonly maxEntries: number;
+
+  constructor(maxEntries = 50) {
+    this.maxEntries = maxEntries;
+  }
 
   /** Get cached data or null if expired/missing. */
   get<T = unknown>(key: string): T | null {
@@ -22,8 +27,13 @@ export class DashboardCache {
     return entry.data as T;
   }
 
-  /** Cache data with TTL in seconds. */
+  /** Cache data with TTL in seconds. Evicts oldest if at capacity. */
   set<T = unknown>(key: string, data: T, ttlSeconds: number): void {
+    // Evict oldest entry if at capacity (LRU)
+    if (this.store.size >= this.maxEntries && !this.store.has(key)) {
+      const oldest = this.store.keys().next().value;
+      if (oldest !== undefined) this.store.delete(oldest);
+    }
     this.store.set(key, {
       data,
       expiresAt: Date.now() + ttlSeconds * 1000,
