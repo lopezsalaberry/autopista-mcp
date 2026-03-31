@@ -527,3 +527,409 @@ body { min-height: 100vh; }
   min-width: 50px;
   text-align: right;
 }
+
+/* ── Filter Pill Bar ───────────────────────────────────────── */
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.filter-pill:hover {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  background: var(--brand-pale);
+}
+
+.filter-pill.active {
+  background: var(--brand-primary);
+  color: white;
+  border-color: var(--brand-primary);
+  box-shadow: 0 2px 8px rgba(0,85,165,0.25);
+}
+
+.filter-pill-icon {
+  font-size: 0.9rem;
+}
+
+.filter-context {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.filter-select {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+  max-width: 400px;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(0,85,165,0.12);
+}
+
+.filter-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-input {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(0,85,165,0.12);
+}
+
+.filter-arrow {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* ── Buttons ───────────────────────────────────────────────── */
+.btn-primary {
+  padding: 10px 24px;
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-light));
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(0,85,165,0.2);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,85,165,0.3);
+}
+
+.btn-primary.btn-sm {
+  padding: 7px 16px;
+  font-size: 0.82rem;
+}
+
+.btn-secondary {
+  padding: 10px 24px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+}
+
+.header-btn {
+  padding: 6px 14px;
+  background: rgba(255,255,255,0.15);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.header-btn:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+/* ── KPI Goal Progress ─────────────────────────────────────── */
+.kpi-goal {
+  margin-top: 10px;
+}
+
+.kpi-goal-track {
+  width: 100%;
+  height: 6px;
+  background: var(--border-light);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.kpi-goal-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.kpi-goal-text {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ── Settings Page ─────────────────────────────────────────── */
+.settings-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 600px) {
+  .settings-grid { grid-template-columns: 1fr; }
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-field label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-field input {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-field input:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(0,85,165,0.12);
+}
+
+.settings-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Drill-Down ────────────────────────────────────────────── */
+.drill-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 8px 0;
+}
+
+.drill-sep {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 2px;
+}
+
+.drill-crumb {
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--brand-primary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.drill-crumb:hover {
+  background: var(--brand-pale);
+}
+
+.drill-crumb.active {
+  background: var(--brand-primary);
+  color: white;
+  cursor: default;
+}
+
+.drill-dim-badge {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.drill-row:hover {
+  background: var(--brand-pale) !important;
+}
+
+.drill-row:hover td:first-child {
+  color: var(--brand-primary);
+}
+
+.drill-arrow {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--brand-primary);
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.drill-row:hover .drill-arrow {
+  opacity: 1;
+}
+
+/* ── Interactive Category Chips ────────────────────────────── */
+.composition-item.clickable {
+  cursor: pointer;
+  transition: all 0.25s ease;
+  border: 2px solid transparent;
+}
+
+.composition-item.clickable:hover {
+  border-color: var(--brand-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 51, 102, 0.12);
+}
+
+.composition-item.active {
+  border-color: var(--brand-primary);
+  background: var(--brand-pale);
+  box-shadow: 0 2px 8px rgba(0, 85, 165, 0.2);
+}
+
+.composition-item.dimmed {
+  opacity: 0.45;
+  transform: scale(0.97);
+}
+
+.filter-clear {
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 4px 12px;
+  border: 1px solid var(--brand-primary);
+  border-radius: 16px;
+  background: transparent;
+  color: var(--brand-primary);
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.2s;
+}
+
+.filter-clear:hover {
+  background: var(--brand-primary);
+  color: white;
+}
+
+.filter-active-banner {
+  margin-top: 12px;
+  padding: 8px 16px;
+  background: var(--brand-pale);
+  border-left: 3px solid var(--brand-primary);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* ── Inline Distribution Bars ─────────────────────────────── */
+.inline-bar-track {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-card);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.inline-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  min-width: 2px;
+  transition: width 0.4s ease;
+}
+
+/* ── Canal Row States ─────────────────────────────────────── */
+.canal-active {
+  background: var(--brand-pale) !important;
+}
+
+.canal-active td:first-child {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.canal-dimmed {
+  opacity: 0.4;
+}
+
+/* ── Filter Chips ─────────────────────────────────────────── */
+.filter-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  margin-left: 6px;
+  background: var(--brand-primary);
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: 12px;
+}
+
+.filter-arrow-sep {
+  margin: 0 4px;
+  color: var(--text-muted);
+  font-weight: 600;
+}

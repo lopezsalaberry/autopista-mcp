@@ -16,6 +16,14 @@ import { EXCLUDED_OWNER_IDS, MAX_AGE, ALL_CANALES, CANAL_DISPLAY_NAMES } from ".
 const API = "https://api.hubapi.com";
 
 // ─── Types ───────────────────────────────────────────────────
+export interface CrossDataRow {
+  categoria: string;
+  canal: string;
+  campana: string;
+  leads: number;
+  converted: number;
+}
+
 export interface LeadsResponse {
   period: { from: string; to: string };
   total: number;
@@ -144,6 +152,106 @@ function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown
   ];
 }
 
+// ─── Paginated Contact Fetch for Cross-Data ─────────────────
+const CROSS_DATA_PROPS = ["categoria", "canal", "campana", "convertido"];
+const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
+
+/**
+ * Fetch ALL contacts split by category to stay under HubSpot's 10k pagination limit.
+ * Groups into (categoria, canal, campana) → {leads, converted} for client-side filtering.
+ */
+export async function fetchCrossData(fromMs: number, toMs: number): Promise<CrossDataRow[]> {
+  const start = Date.now();
+  const map = new Map<string, { leads: number; converted: number }>();
+  let totalContacts = 0;
+  let totalPages = 0;
+
+  for (const categoria of CROSS_CATEGORIES) {
+    const filters = [
+      { propertyName: "dato_gh", operator: "EQ", value: "true" },
+      { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+      { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+      { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+      { propertyName: "categoria", operator: "EQ", value: categoria },
+    ];
+
+    let after: string | undefined;
+    let catPages = 0;
+
+    do {
+      const body: Record<string, unknown> = {
+        filterGroups: [{ filters }],
+        properties: CROSS_DATA_PROPS,
+        limit: 100,
+      };
+      if (after) body.after = after;
+
+      let data: any;
+      for (let attempt = 0; attempt <= 5; attempt++) {
+        const res = await fetch(`${API}/crm/v3/objects/contacts/search`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.HUBSPOT_ACCESS_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (res.status === 429 && attempt < 5) {
+          const retryAfter = parseInt(res.headers.get("retry-after") || "3", 10);
+          const delay = retryAfter * 1000 * (attempt + 1);
+          logger.warn({ attempt, delay, categoria }, "CrossData 429 — retrying");
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        if (!res.ok) {
+          const errorBody = await res.text();
+          logger.error({ status: res.status, body: errorBody, categoria, page: catPages }, "CrossData page error");
+          throw new Error(`HubSpot API error: ${res.status}`);
+        }
+
+        data = await res.json();
+        break;
+      }
+
+      if (!data) throw new Error("CrossData: max retries exceeded");
+
+      for (const contact of data.results || []) {
+        const props = contact.properties || {};
+        const canal = props.canal || "Sin canal";
+        const campana = props.campana || "Sin campaña";
+        const isConverted = props.convertido === "true";
+
+        const key = `${categoria}|${canal}|${campana}`;
+        const existing = map.get(key);
+        if (existing) {
+          existing.leads++;
+          if (isConverted) existing.converted++;
+        } else {
+          map.set(key, { leads: 1, converted: isConverted ? 1 : 0 });
+        }
+        totalContacts++;
+      }
+
+      after = data.paging?.next?.after;
+      catPages++;
+      totalPages++;
+    } while (after && catPages < 100);
+  }
+
+  const result: CrossDataRow[] = [];
+  for (const [key, val] of map) {
+    const [categoria, canal, campana] = key.split("|");
+    result.push({ categoria, canal, campana, leads: val.leads, converted: val.converted });
+  }
+
+  const elapsed = Date.now() - start;
+  logger.info({ elapsed, pages: totalPages, contacts: totalContacts, uniqueTuples: result.length }, "CrossData fetched");
+
+  return result;
+}
+
 // ─── Query Functions ─────────────────────────────────────────
 
 /** Get total lead count. */
@@ -216,42 +324,42 @@ async function getCanalConverted(fromMs: number, toMs: number, canal: string): P
   return total;
 }
 
-/** Get top campaigns with counts. */
+/** Get top campaigns with counts — parallelized via Promise.all. */
 async function getTopCampanas(
   fromMs: number,
   toMs: number,
   campanaNames: string[],
 ): Promise<CampanaBreakdown[]> {
-  const results: CampanaBreakdown[] = [];
+  const campanaResults = await Promise.all(
+    campanaNames.map(async (name) => {
+      const [total, converted] = await Promise.all([
+        hubspotSearch([
+          ...baseFilters(fromMs, toMs),
+          { propertyName: "campana", operator: "EQ", value: name },
+        ]).then(r => r.total),
+        hubspotSearch([
+          { propertyName: "dato_gh", operator: "EQ", value: "true" },
+          { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+          { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+          { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+          { propertyName: "campana", operator: "EQ", value: name },
+          { propertyName: "convertido", operator: "EQ", value: "true" },
+        ]).then(r => r.total),
+      ]);
+      return { name, total, converted };
+    })
+  );
 
-  for (const name of campanaNames) {
-    const [total, converted] = await Promise.all([
-      hubspotSearch([
-        ...baseFilters(fromMs, toMs),
-        { propertyName: "campana", operator: "EQ", value: name },
-      ]).then(r => r.total),
-      hubspotSearch([
-        { propertyName: "dato_gh", operator: "EQ", value: "true" },
-        { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
-        { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
-        { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
-        { propertyName: "campana", operator: "EQ", value: name },
-        { propertyName: "convertido", operator: "EQ", value: "true" },
-      ]).then(r => r.total),
-    ]);
-
-    if (total > 0) {
-      results.push({
-        name,
-        canal: "",
-        count: total,
-        converted,
-        rate: Number(((converted / total) * 100).toFixed(2)),
-      });
-    }
-  }
-
-  return results.sort((a, b) => b.count - a.count);
+  return campanaResults
+    .filter(r => r.total > 0)
+    .map(r => ({
+      name: r.name,
+      canal: "",
+      count: r.total,
+      converted: r.converted,
+      rate: Number(((r.converted / r.total) * 100).toFixed(2)),
+    }))
+    .sort((a, b) => b.count - a.count);
 }
 
 /** Discover top campaign names by fetching a sample of contacts. */
@@ -291,6 +399,7 @@ export async function fetchLeadsData(
   const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
 
   const start = Date.now();
+
 
   // ── Batch 1: Totals ────────────────────────────────────────
   const [rawTotal, overAge, converted] = await Promise.all([
@@ -390,3 +499,180 @@ export async function fetchLeadsData(
     previousPeriod,
   };
 }
+
+// ─── UTM Breakdown (drill-down) ──────────────────────────────
+
+export interface BreakdownItem {
+  value: string;
+  displayName: string;
+  count: number;
+  converted: number;
+  rate: number;
+  pct: number;
+}
+
+export interface BreakdownResponse {
+  dimension: string;
+  parentFilters: Record<string, string>;
+  period: { from: string; to: string };
+  total: number;
+  items: BreakdownItem[];
+}
+
+/**
+ * Fetch a breakdown by a single UTM dimension, optionally filtered
+ * by parent dimensions (e.g., canal within a specific categoria).
+ *
+ * The HubSpot 6-filter limit constrains what we can do:
+ * - Base filters: 5 (dato_gh, retail, date GTE, date LTE, owner NOT_IN)
+ * - That leaves 1 slot for the drill-down dimension
+ * - With 1 parent filter, we drop owner NOT_IN to fit
+ * - With 2 parent filters, we drop owner NOT_IN to fit
+ */
+export async function fetchBreakdown(
+  from: string,
+  to: string,
+  dimension: string,
+  parentFilters: Record<string, string> = {},
+): Promise<BreakdownResponse> {
+  const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+  const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
+
+  const parentEntries = Object.entries(parentFilters);
+  const parentFilterCount = parentEntries.length;
+
+  // Build filter set — drop owner NOT_IN if we need room for parents + dimension
+  // Base: dato_gh(1) + retail(2) + date_gte(3) + date_lte(4) = 4
+  // With owner: +1 = 5
+  // Available slots: 6 - base = remaining for parents + dimension discovery
+  const useOwnerFilter = parentFilterCount === 0; // only if no parents
+  const buildFilters = (): Array<Record<string, unknown>> => {
+    const f: Array<Record<string, unknown>> = [
+      { propertyName: "dato_gh", operator: "EQ", value: "true" },
+      { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+      { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+      { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+    ];
+    if (useOwnerFilter) {
+      f.push({ propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS });
+    }
+    for (const [prop, val] of parentEntries) {
+      f.push({ propertyName: prop, operator: "EQ", value: val });
+    }
+    return f;
+  };
+
+  // Step 1: Get parent-filtered total
+  const { total: rawTotal } = await hubspotSearch(buildFilters());
+
+  // Step 2: Discover unique values for the target dimension
+  const dimProp = dimension; // e.g., "categoria_de_venta", "canal", "campana"
+  let uniqueValues: string[];
+
+  // Use known values for well-known dimensions
+  if (dimProp === "categoria_de_venta") {
+    uniqueValues = ["Pago", "Organico", "Outbound"];
+  } else if (dimProp === "canal") {
+    uniqueValues = ALL_CANALES;
+  } else {
+    // Discover from sample for campana or any other dimension
+    const { results } = await hubspotSearch(
+      buildFilters(),
+      [dimProp],
+      100,
+    );
+    const freq = new Map<string, number>();
+    for (const c of results) {
+      const val = c.properties?.[dimProp];
+      if (val) freq.set(val, (freq.get(val) || 0) + 1);
+    }
+    uniqueValues = [...freq.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15) // top 15 values
+      .map(([name]) => name);
+  }
+
+  // Step 3: Query total + converted for each unique value — parallelized
+  const itemResults = await Promise.all(
+    uniqueValues.map(async (val) => {
+      const dimFilter = { propertyName: dimProp, operator: "EQ", value: val };
+
+      // Total: buildFilters() handles filter budget (drops owner when parents present)
+      const totalFilters = [...buildFilters(), dimFilter];
+
+      // Converted: need base(4) + parent(s) + dim(1) + convertido(1)
+      let convertedFilters: Array<Record<string, unknown>>;
+
+      if (parentFilterCount === 0) {
+        // No parents: base(4) + dim(1) + convertido(1) = 6 ✅
+        convertedFilters = [
+          { propertyName: "dato_gh", operator: "EQ", value: "true" },
+          { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+          { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+          { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+          dimFilter,
+          { propertyName: "convertido", operator: "EQ", value: "true" },
+        ];
+      } else {
+        const allConvertedFilters = [
+          { propertyName: "dato_gh", operator: "EQ", value: "true" },
+          { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+          { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+          { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+          ...parentEntries.map(([prop, v]) => ({ propertyName: prop, operator: "EQ", value: v })),
+          dimFilter,
+          { propertyName: "convertido", operator: "EQ", value: "true" },
+        ];
+
+        if (allConvertedFilters.length <= 6) {
+          convertedFilters = allConvertedFilters;
+        } else {
+          // Must sacrifice parent filters: base(4) + dim(1) + convertido(1) = 6
+          convertedFilters = [
+            { propertyName: "dato_gh", operator: "EQ", value: "true" },
+            { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
+            { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
+            { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
+            dimFilter,
+            { propertyName: "convertido", operator: "EQ", value: "true" },
+          ];
+        }
+      }
+
+      const [countRes, convRes] = await Promise.all([
+        hubspotSearch(totalFilters).then(r => r.total),
+        hubspotSearch(convertedFilters).then(r => r.total),
+      ]);
+
+      return { val, countRes, convRes };
+    })
+  );
+
+  const items: BreakdownItem[] = itemResults
+    .filter(r => r.countRes > 0)
+    .map(r => {
+      const displayName = dimProp === "canal"
+        ? (CANAL_DISPLAY_NAMES[r.val] || r.val)
+        : r.val;
+      // Clamp converted ≤ count (converted query may lack parent filter due to 6-filter limit)
+      const clampedConverted = Math.min(r.convRes, r.countRes);
+      return {
+        value: r.val,
+        displayName,
+        count: r.countRes,
+        converted: clampedConverted,
+        rate: Number(((clampedConverted / r.countRes) * 100).toFixed(2)),
+        pct: rawTotal > 0 ? Number(((r.countRes / rawTotal) * 100).toFixed(1)) : 0,
+      };
+    })
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    dimension: dimProp,
+    parentFilters,
+    period: { from, to },
+    total: rawTotal,
+    items,
+  };
+}
+

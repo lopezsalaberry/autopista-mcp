@@ -14,7 +14,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { logger } from "../shared/logger.js";
 import { getAllVigencias, getPreviousPeriod, type VigenciaConfig } from "./vigencia.js";
 import { dashboardCache } from "./dashboard-cache.js";
-import { fetchLeadsData } from "./hubspot-queries.js";
+import { fetchLeadsData, fetchBreakdown, fetchCrossData } from "./hubspot-queries.js";
 
 const router = Router();
 
@@ -101,7 +101,13 @@ router.get("/previous-period", (req: Request, res: Response) => {
 });
 
 // ─── GET /leads ──────────────────────────────────────────────
-const CACHE_TTL = 300; // 5 minutes
+/** Smart TTL: historical periods cache longer since data doesn't change. */
+function computeCacheTTL(from: string, to: string): number {
+  const today = new Date().toISOString().split("T")[0];
+  if (to < today) return 3600;  // Historical: 1 hour
+  if (from === to) return 120;  // "Hoy": 2 minutes
+  return 300;                   // Active period: 5 minutes
+}
 
 router.get("/leads", async (req: Request, res: Response) => {
   const { from, to } = req.query as { from?: string; to?: string };
@@ -135,8 +141,8 @@ router.get("/leads", async (req: Request, res: Response) => {
 
     const data = await fetchLeadsData(from, to, prev.from, prev.to);
 
-    // Cache the response
-    dashboardCache.set(cacheKey, data, CACHE_TTL);
+    // Cache the response with smart TTL
+    dashboardCache.set(cacheKey, data, computeCacheTTL(from, to));
 
     res.json(data);
   } catch (err: unknown) {
@@ -145,6 +151,100 @@ router.get("/leads", async (req: Request, res: Response) => {
       error: {
         code: "HUBSPOT_ERROR",
         message: err instanceof Error ? err.message : "Failed to fetch leads data",
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// ─── GET /breakdown ──────────────────────────────────────────
+const VALID_DIMENSIONS = ["categoria_de_venta", "categoria", "canal", "campana"];
+
+router.get("/breakdown", async (req: Request, res: Response) => {
+  const { from, to, dimension } = req.query as { from?: string; to?: string; dimension?: string };
+
+  if (!from || !to || !dimension) {
+    res.status(400).json({
+      error: { code: "INVALID_PARAMS", message: "from, to, and dimension are required" },
+    });
+    return;
+  }
+
+  if (!VALID_DIMENSIONS.includes(dimension)) {
+    res.status(400).json({
+      error: { code: "INVALID_DIMENSION", message: `dimension must be one of: ${VALID_DIMENSIONS.join(", ")}` },
+    });
+    return;
+  }
+
+  // Parse parent filters from query string (e.g., &canal=REDES&categoria_de_venta=Pago)
+  const parentFilters: Record<string, string> = {};
+  for (const dim of VALID_DIMENSIONS) {
+    if (dim !== dimension && req.query[dim]) {
+      parentFilters[dim] = req.query[dim] as string;
+    }
+  }
+
+  // Check cache
+  const cacheKey = dashboardCache.key("breakdown", { from, to, dimension, ...parentFilters });
+  const cached = dashboardCache.get(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
+  try {
+    const data = await fetchBreakdown(from, to, dimension, parentFilters);
+    dashboardCache.set(cacheKey, data, computeCacheTTL(from, to));
+    res.json(data);
+  } catch (err: unknown) {
+    logger.error({ err, from, to, dimension, parentFilters }, "Error fetching breakdown");
+    res.status(500).json({
+      error: {
+        code: "HUBSPOT_ERROR",
+        message: err instanceof Error ? err.message : "Failed to fetch breakdown data",
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// ─── GET /cross-data ──────────────────────────────────────────
+// Separate endpoint for cross-dimensional data (fetched lazily after dashboard load)
+router.get("/cross-data", async (req: Request, res: Response) => {
+  const { from, to } = req.query as { from?: string; to?: string };
+
+  if (!from || !to) {
+    res.status(400).json({ error: { code: "INVALID_PARAMS", message: "from and to are required" } });
+    return;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    res.status(400).json({
+      error: { code: "INVALID_DATE_FORMAT", message: "Dates must be in YYYY-MM-DD format" },
+    });
+    return;
+  }
+
+  const cacheKey = dashboardCache.key("crossData", { from, to });
+  const cached = dashboardCache.get(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
+  try {
+    const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+    const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
+    const data = await fetchCrossData(fromMs, toMs);
+    dashboardCache.set(cacheKey, data, computeCacheTTL(from, to));
+    res.json(data);
+  } catch (err: unknown) {
+    logger.error({ err, from, to }, "Error fetching cross data");
+    res.status(500).json({
+      error: {
+        code: "HUBSPOT_ERROR",
+        message: err instanceof Error ? err.message : "Failed to fetch cross data",
         timestamp: new Date().toISOString(),
       },
     });
@@ -163,3 +263,4 @@ router.delete("/cache", (_req: Request, res: Response) => {
 });
 
 export default router;
+
