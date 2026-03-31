@@ -81,8 +81,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // Execute each tool call
         for (const toolCall of message.tool_calls) {
-          const fnName = toolCall.function.name;
-          const fnArgs = JSON.parse(toolCall.function.arguments || "{}");
+          if (toolCall.type !== "function") continue;
+          const fn = toolCall.function as { name: string; arguments: string };
+          const fnName = fn.name;
+          const fnArgs = JSON.parse(fn.arguments || "{}");
 
           res.write(
             `event: tool_start\ndata: ${JSON.stringify({ name: fnName })}\n\n`,
