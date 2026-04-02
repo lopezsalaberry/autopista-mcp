@@ -11,6 +11,21 @@ interface GoogleAdsConfig {
   loginCustomerId?: string;
 }
 
+/** Shape of a Google Ads searchStream result row. */
+interface GoogleAdsRow {
+  segments?: { date?: string };
+  campaign?: { id?: string; name?: string; status?: string; advertisingChannelType?: string };
+  customer?: Record<string, unknown>;
+  metrics?: {
+    impressions?: string; clicks?: string; costMicros?: string;
+    conversions?: string; conversionsValue?: string;
+    ctr?: string; averageCpc?: string; averageCpm?: string;
+    interactions?: string;
+  };
+  adGroup?: { name?: string };
+  adGroupCriterion?: { keyword?: { text?: string; matchType?: string } };
+}
+
 export class GoogleAdsClient {
   private clientId: string;
   private clientSecret: string;
@@ -45,6 +60,7 @@ export class GoogleAdsClient {
         refresh_token: this.refreshToken,
         grant_type: "refresh_token",
       }),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!res.ok) {
@@ -58,7 +74,7 @@ export class GoogleAdsClient {
     return this.accessToken;
   }
 
-  private async query(gaql: string): Promise<unknown[]> {
+  private async query(gaql: string): Promise<GoogleAdsRow[]> {
     const token = await this.getAccessToken();
 
     const headers: Record<string, string> = {
@@ -76,6 +92,7 @@ export class GoogleAdsClient {
         method: "POST",
         headers,
         body: JSON.stringify({ query: gaql }),
+        signal: AbortSignal.timeout(30_000),
       },
     );
 
@@ -84,9 +101,12 @@ export class GoogleAdsClient {
       throw new Error(`Google Ads API ${res.status}: ${body}`);
     }
 
-    const data = await res.json() as any[];
+    interface SearchStreamBatch {
+      results?: GoogleAdsRow[];
+    }
+    const data = await res.json() as SearchStreamBatch[];
     // searchStream retorna un array de batches, cada uno con results
-    return data.flatMap((batch: any) => batch.results || []);
+    return data.flatMap((batch) => batch.results || []);
   }
 
   async campaignMetrics(params: {
@@ -118,7 +138,7 @@ export class GoogleAdsClient {
 
     const results = await this.query(gaql);
 
-    return results.map((row: any) => ({
+    return results.map((row) => ({
       date: row.segments?.date,
       campaign_id: row.campaign?.id,
       campaign_name: row.campaign?.name,
@@ -153,7 +173,7 @@ export class GoogleAdsClient {
 
     const results = await this.query(gaql);
 
-    return results.map((row: any) => ({
+    return results.map((row) => ({
       date: row.segments?.date,
       impressions: Number(row.metrics?.impressions || 0),
       clicks: Number(row.metrics?.clicks || 0),
@@ -192,7 +212,7 @@ export class GoogleAdsClient {
 
     const results = await this.query(gaql);
 
-    return results.map((row: any) => ({
+    return results.map((row) => ({
       date: row.segments?.date,
       campaign: row.campaign?.name,
       ad_group: row.adGroup?.name,

@@ -203,6 +203,7 @@ export class KeycloakOAuthProvider implements OAuthServerProvider {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -236,6 +237,7 @@ export class KeycloakOAuthProvider implements OAuthServerProvider {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -294,6 +296,7 @@ export class KeycloakOAuthProvider implements OAuthServerProvider {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {

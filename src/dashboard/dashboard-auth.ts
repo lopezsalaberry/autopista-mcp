@@ -140,7 +140,7 @@ async function verifyKeycloakJwt(token: string): Promise<JwtPayload | null> {
 
     return {
       sub: payload.sub || "keycloak-user",
-      name: (payload as any).preferred_username || (payload as any).name || payload.sub || "Keycloak User",
+      name: (payload as Record<string, unknown>).preferred_username as string || (payload as Record<string, unknown>).name as string || payload.sub || "Keycloak User",
       iat: payload.iat || 0,
       exp: payload.exp || 0,
       iss: payload.iss || "keycloak",
@@ -259,7 +259,7 @@ authRouter.post("/login", (req: Request, res: Response) => {
 });
 
 // GET /auth/me — verify token and return user info
-authRouter.get("/me", dashboardAuth as any, (req: AuthenticatedRequest, res: Response) => {
+authRouter.get("/me", dashboardAuth as unknown as import("express").RequestHandler, (req: AuthenticatedRequest, res: Response) => {
   res.json({
     user: {
       username: req.user!.sub,

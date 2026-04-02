@@ -13,11 +13,11 @@ interface TranscriptionResult {
 
 export class AudioTranscriber {
   private openaiApiKey: string;
-  private hubspotApiGet: (path: string) => Promise<any>;
+  private hubspotApiGet: (path: string) => Promise<Record<string, unknown>>;
 
   constructor(
     openaiApiKey: string,
-    hubspotApiGet: (path: string) => Promise<any>,
+    hubspotApiGet: (path: string) => Promise<Record<string, unknown>>,
   ) {
     this.openaiApiKey = openaiApiKey;
     this.hubspotApiGet = hubspotApiGet;
@@ -28,7 +28,7 @@ export class AudioTranscriber {
    * y reemplaza las referencias con la transcripcion via Whisper.
    */
   async transcribeCommunicationBodies(
-    results: Array<{ id: string; properties: Record<string, any>; [key: string]: any }>,
+    results: Array<{ id: string; properties: Record<string, string>; [key: string]: unknown }>,
   ): Promise<void> {
     for (const result of results) {
       const body = result.properties?.hs_communication_body;
@@ -78,25 +78,28 @@ export class AudioTranscriber {
     filename: string,
   ): Promise<TranscriptionResult> {
     // 1. Obtener signed URL desde HubSpot Files API
-    let signedUrlData: any;
+    let signedUrlData: Record<string, unknown>;
     try {
       signedUrlData = await this.hubspotApiGet(
         `/files/v3/files/${fileId}/signed-url`,
       );
-    } catch (err: any) {
-      logger.warn({ fileId, error: err.message }, "Error obteniendo signed URL de HubSpot");
-      return { fileId, filename, error: `HubSpot Files API error: ${err.message}` };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn({ fileId, error: message }, "Error obteniendo signed URL de HubSpot");
+      return { fileId, filename, error: `HubSpot Files API error: ${message}` };
     }
 
-    const downloadUrl = signedUrlData?.url || signedUrlData?.signedUrl;
+    const downloadUrl = (signedUrlData?.url || signedUrlData?.signedUrl) as string | undefined;
     if (!downloadUrl) {
-      const apiMsg = signedUrlData?.message || "respuesta sin URL";
+      const apiMsg = (signedUrlData?.message as string) || "respuesta sin URL";
       logger.warn({ fileId, response: signedUrlData }, "Signed URL no disponible");
       return { fileId, filename, error: `HubSpot Files API: ${apiMsg}` };
     }
 
     // 2. Descargar el archivo de audio
-    const fileResponse = await fetch(downloadUrl);
+    const fileResponse = await fetch(downloadUrl, {
+      signal: AbortSignal.timeout(30_000), // audio files can be large
+    });
     if (!fileResponse.ok) {
       return {
         fileId,
@@ -116,6 +119,7 @@ export class AudioTranscriber {
       method: "POST",
       headers: { Authorization: `Bearer ${this.openaiApiKey}` },
       body: formData,
+      signal: AbortSignal.timeout(60_000), // Whisper transcription can be slow
     });
 
     if (!whisperResponse.ok) {

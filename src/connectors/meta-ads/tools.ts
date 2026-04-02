@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+
+import { logger } from "../../shared/logger.js";
 import { MetaAdsClient } from "./client.js";
 
 function json(data: unknown): { content: Array<{ type: "text"; text: string }> } {
@@ -8,6 +10,18 @@ function json(data: unknown): { content: Array<{ type: "text"; text: string }> }
 
 function error(msg: string) {
   return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
+}
+
+function wrapTool<T>(fn: (args: T) => Promise<unknown>) {
+  return async (args: T) => {
+    try {
+      return json(await fn(args));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "MCP tool error");
+      return error(message);
+    }
+  };
 }
 
 export function registerMetaAdsTools(server: McpServer, client: MetaAdsClient) {
@@ -19,14 +33,10 @@ export function registerMetaAdsTools(server: McpServer, client: MetaAdsClient) {
         .describe("Filtrar por estado (default: todas)"),
       limit: z.number().optional().describe("Max campañas a devolver (default: 100)"),
     },
-    async (args) => {
-      try {
-        const data = await client.getCampaigns(args);
-        return json({ total: (data as any[]).length, campaigns: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.getCampaigns(args);
+      return { total: data.length, campaigns: data };
+    }),
   );
 
   server.tool(
@@ -40,14 +50,10 @@ export function registerMetaAdsTools(server: McpServer, client: MetaAdsClient) {
       breakdowns: z.string().optional()
         .describe("Desglosar por: 'age', 'gender', 'country', 'publisher_platform', 'device_platform'. Se pueden combinar con coma."),
     },
-    async (args) => {
-      try {
-        const data = await client.getAccountInsights(args);
-        return json({ total: (data as any[]).length, insights: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.getAccountInsights(args);
+      return { total: data.length, insights: data };
+    }),
   );
 
   server.tool(
@@ -61,14 +67,10 @@ export function registerMetaAdsTools(server: McpServer, client: MetaAdsClient) {
       campaign_ids: z.array(z.string()).optional()
         .describe("IDs de campañas especificas (si no se especifica, devuelve todas)"),
     },
-    async (args) => {
-      try {
-        const data = await client.getCampaignInsights(args);
-        return json({ total: (data as any[]).length, insights: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.getCampaignInsights(args);
+      return { total: data.length, insights: data };
+    }),
   );
 
   server.tool(
@@ -82,13 +84,9 @@ export function registerMetaAdsTools(server: McpServer, client: MetaAdsClient) {
       campaign_ids: z.array(z.string()).optional()
         .describe("Filtrar por IDs de campaña (si no se especifica, devuelve todos los ad sets)"),
     },
-    async (args) => {
-      try {
-        const data = await client.getAdSetInsights(args);
-        return json({ total: (data as any[]).length, insights: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.getAdSetInsights(args);
+      return { total: data.length, insights: data };
+    }),
   );
 }

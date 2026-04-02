@@ -38,6 +38,7 @@ export class MixpanelClient {
 
     const res = await fetch(url.toString(), {
       headers: { Authorization: this.authHeader, Accept: "application/json" },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {
@@ -63,6 +64,7 @@ export class MixpanelClient {
             .map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)])
         ),
       }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {
@@ -109,6 +111,7 @@ export class MixpanelClient {
 
     const res = await fetch(url.toString(), {
       headers: { Authorization: this.authHeader, Accept: "text/plain" },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {

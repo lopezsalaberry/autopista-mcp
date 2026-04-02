@@ -34,11 +34,11 @@ export class HubSpotClient {
 
     const response = await this.client.crm.contacts.searchApi.doSearch({
       query: options.query,
-      filterGroups: filterGroups as any,
+      filterGroups: filterGroups as never, // TYPE: HubSpot SDK expects FilterGroup[] but our shape is compatible
       properties: options.properties,
       limit: options.limit || 10,
       after: options.after ? String(options.after) : undefined,
-      sorts: options.sorts as any,
+      sorts: options.sorts as never, // TYPE: HubSpot SDK sort type is overly strict
     });
 
     return {
@@ -73,11 +73,11 @@ export class HubSpotClient {
 
     const response = await this.client.crm.deals.searchApi.doSearch({
       query: options.query,
-      filterGroups: filterGroups as any,
+      filterGroups: filterGroups as never, // TYPE: HubSpot SDK expects FilterGroup[] but our shape is compatible
       properties: options.properties,
       limit: options.limit || 10,
       after: options.after ? String(options.after) : undefined,
-      sorts: options.sorts as any,
+      sorts: options.sorts as never, // TYPE: HubSpot SDK sort type is overly strict
     });
 
     return {
@@ -146,14 +146,16 @@ export class HubSpotClient {
 
   // ── Engagements & Associations ──────────────────────────────────
 
-  private async apiGet(path: string): Promise<any> {
+  private async apiGet(path: string): Promise<Record<string, unknown>> {
     const resp = await this.client.apiRequest({ method: "GET", path });
-    return (resp as any).json();
+    // TYPE: HubSpot SDK apiRequest returns node-fetch Response (not global Response)
+    return (resp as unknown as { json(): Promise<Record<string, unknown>> }).json();
   }
 
-  private async apiPost(path: string, body: unknown): Promise<any> {
+  private async apiPost(path: string, body: unknown): Promise<Record<string, unknown>> {
     const resp = await this.client.apiRequest({ method: "POST", path, body });
-    return (resp as any).json();
+    // TYPE: HubSpot SDK apiRequest returns node-fetch Response (not global Response)
+    return (resp as unknown as { json(): Promise<Record<string, unknown>> }).json();
   }
 
   private async getAssociatedObjects(
@@ -162,12 +164,12 @@ export class HubSpotClient {
     targetType: string,
     properties: string[],
     limit: number = 100,
-  ): Promise<{ results: any[]; total: number }> {
+  ): Promise<{ results: Array<{ id: string; properties: Record<string, string>; createdAt: string; updatedAt: string }>; total: number }> {
     const assocData = await this.apiGet(
       `/crm/v4/objects/${sourceType}/${sourceId}/associations/${targetType}`,
     );
 
-    const ids: string[] = (assocData.results || []).map((r: any) => String(r.toObjectId));
+    const ids: string[] = ((assocData.results || []) as Array<{ toObjectId: string | number }>).map((r) => String(r.toObjectId));
     if (ids.length === 0) return { results: [], total: 0 };
 
     const batchData = await this.apiPost(
@@ -175,16 +177,16 @@ export class HubSpotClient {
       { inputs: ids.slice(0, limit).map((id) => ({ id })), properties },
     );
 
-    const results = (batchData.results || []).map((obj: any) => ({
-      id: obj.id,
-      properties: obj.properties,
-      createdAt: obj.createdAt,
-      updatedAt: obj.updatedAt,
+    const results = ((batchData.results || []) as Array<Record<string, unknown>>).map((obj) => ({
+      id: obj.id as string,
+      properties: obj.properties as Record<string, string>,
+      createdAt: obj.createdAt as string,
+      updatedAt: obj.updatedAt as string,
     }));
 
-    results.sort((a: any, b: any) => {
-      const tsA = a.properties.hs_timestamp || a.createdAt || "";
-      const tsB = b.properties.hs_timestamp || b.createdAt || "";
+    results.sort((a, b) => {
+      const tsA = (a.properties as Record<string, string>).hs_timestamp || a.createdAt || "";
+      const tsB = (b.properties as Record<string, string>).hs_timestamp || b.createdAt || "";
       return tsB.localeCompare(tsA);
     });
 
@@ -319,21 +321,21 @@ export class HubSpotClient {
 
   async listSchemas() {
     const data = await this.apiGet("/crm/v3/schemas");
-    return (data.results || []).map((s: any) => ({
-      id: s.objectTypeId,
-      name: s.name,
+    return ((data.results || []) as Array<Record<string, unknown>>).map((s) => ({
+      id: s.objectTypeId as string,
+      name: s.name as string,
       labels: s.labels,
-      primaryDisplayProperty: s.primaryDisplayProperty,
-      properties: (s.properties || []).map((p: any) => ({
-        name: p.name,
-        label: p.label,
-        type: p.type,
+      primaryDisplayProperty: s.primaryDisplayProperty as string,
+      properties: ((s.properties || []) as Array<Record<string, unknown>>).map((p) => ({
+        name: p.name as string,
+        label: p.label as string,
+        type: p.type as string,
       })),
-      associations: (s.associations || []).map((a: any) => ({
-        id: a.id,
-        fromObjectTypeId: a.fromObjectTypeId,
-        toObjectTypeId: a.toObjectTypeId,
-        name: a.name,
+      associations: ((s.associations || []) as Array<Record<string, unknown>>).map((a) => ({
+        id: a.id as string,
+        fromObjectTypeId: a.fromObjectTypeId as string,
+        toObjectTypeId: a.toObjectTypeId as string,
+        name: a.name as string,
       })),
     }));
   }
@@ -349,7 +351,7 @@ export class HubSpotClient {
       `/crm/v4/objects/${sourceType}/${sourceId}/associations/${customObjectType}`,
     );
 
-    const ids: string[] = (assocData.results || []).map((r: any) => String(r.toObjectId));
+    const ids: string[] = ((assocData.results || []) as Array<{ toObjectId: string | number }>).map((r) => String(r.toObjectId));
     if (ids.length === 0) return { results: [], total: 0 };
 
     if (properties && properties.length > 0) {
@@ -358,11 +360,11 @@ export class HubSpotClient {
         { inputs: ids.slice(0, limit || 100).map((id) => ({ id })), properties },
       );
       return {
-        results: (batchData.results || []).map((obj: any) => ({
-          id: obj.id,
-          properties: obj.properties,
-          createdAt: obj.createdAt,
-          updatedAt: obj.updatedAt,
+        results: ((batchData.results || []) as Array<Record<string, unknown>>).map((obj) => ({
+          id: obj.id as string,
+          properties: obj.properties as Record<string, string>,
+          createdAt: obj.createdAt as string,
+          updatedAt: obj.updatedAt as string,
         })),
         total: ids.length,
       };
@@ -374,11 +376,11 @@ export class HubSpotClient {
       { inputs: ids.slice(0, limit || 100).map((id) => ({ id })), properties: [] },
     );
     return {
-      results: (batchData.results || []).map((obj: any) => ({
-        id: obj.id,
-        properties: obj.properties,
-        createdAt: obj.createdAt,
-        updatedAt: obj.updatedAt,
+      results: ((batchData.results || []) as Array<Record<string, unknown>>).map((obj) => ({
+        id: obj.id as string,
+        properties: obj.properties as Record<string, string>,
+        createdAt: obj.createdAt as string,
+        updatedAt: obj.updatedAt as string,
       })),
       total: ids.length,
     };
@@ -398,9 +400,9 @@ export class HubSpotClient {
       `/crm/v3/objects/${objectType}/${objectId}?${params.toString()}`,
     );
 
-    const history: Record<string, any[]> = {};
+    const history: Record<string, Array<Record<string, unknown>>> = {};
     for (const prop of properties) {
-      history[prop] = (data.propertiesWithHistory?.[prop] || []).map((h: any) => ({
+      history[prop] = (((data.propertiesWithHistory as Record<string, unknown[]>)?.[prop] || []) as Array<Record<string, unknown>>).map((h) => ({
         value: h.value,
         timestamp: h.timestamp,
         sourceType: h.sourceType,
@@ -422,14 +424,14 @@ export class HubSpotClient {
     });
 
     return {
-      total: data.total ?? (data.lists || []).length,
-      lists: (data.lists || []).map((l: any) => ({
-        listId: l.listId,
-        name: l.name,
-        size: l.size,
-        listType: l.listType,
-        createdAt: l.createdAt,
-        updatedAt: l.updatedAt,
+      total: (data.total as number) ?? ((data.lists || []) as unknown[]).length,
+      lists: ((data.lists || []) as Array<Record<string, unknown>>).map((l) => ({
+        listId: l.listId as string,
+        name: l.name as string,
+        size: l.size as number,
+        listType: l.listType as string,
+        createdAt: l.createdAt as string,
+        updatedAt: l.updatedAt as string,
       })),
     };
   }
@@ -471,11 +473,11 @@ export class HubSpotClient {
 
     const response = await this.client.crm.companies.searchApi.doSearch({
       query: options.query,
-      filterGroups: filterGroups as any,
+      filterGroups: filterGroups as never, // TYPE: HubSpot SDK expects FilterGroup[] but our shape is compatible
       properties: options.properties,
       limit: options.limit || 10,
       after: options.after ? String(options.after) : undefined,
-      sorts: options.sorts as any,
+      sorts: options.sorts as never, // TYPE: HubSpot SDK sort type is overly strict
     });
 
     return {
@@ -512,16 +514,16 @@ export class HubSpotClient {
     );
 
     return {
-      total: data.total ?? (data.results || []).length,
-      results: (data.results || []).map((e: any) => ({
-        id: e.id,
-        name: e.name,
-        subject: e.subject,
-        type: e.type,
-        state: e.state,
-        publishDate: e.publishDate,
-        createdAt: e.createdAt,
-        updatedAt: e.updatedAt,
+      total: (data.total as number) ?? ((data.results || []) as unknown[]).length,
+      results: ((data.results || []) as Array<Record<string, unknown>>).map((e) => ({
+        id: e.id as string,
+        name: e.name as string,
+        subject: e.subject as string,
+        type: e.type as string,
+        state: e.state as string,
+        publishDate: e.publishDate as string,
+        createdAt: e.createdAt as string,
+        updatedAt: e.updatedAt as string,
         stats: e.statistics,
       })),
       paging: data.paging,
@@ -550,14 +552,14 @@ export class HubSpotClient {
     const data = await this.apiGet(`/automation/v4/flows?${params.toString()}`);
 
     return {
-      total: data.total ?? (data.results || []).length,
-      results: (data.results || []).map((flow: any) => ({
-        id: flow.id,
-        name: flow.name,
-        type: flow.type,
-        enabled: flow.enabled,
-        insertedAt: flow.insertedAt,
-        updatedAt: flow.updatedAt,
+      total: (data.total as number) ?? ((data.results || []) as unknown[]).length,
+      results: ((data.results || []) as Array<Record<string, unknown>>).map((flow) => ({
+        id: flow.id as string,
+        name: flow.name as string,
+        type: flow.type as string,
+        enabled: flow.enabled as boolean,
+        insertedAt: flow.insertedAt as string,
+        updatedAt: flow.updatedAt as string,
         enrollmentTriggers: flow.enrollmentTriggers,
       })),
       paging: data.paging,

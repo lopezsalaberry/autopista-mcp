@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+
+import { logger } from "../../shared/logger.js";
 import { GoogleAdsClient } from "./client.js";
 
 function json(data: unknown): { content: Array<{ type: "text"; text: string }> } {
@@ -10,6 +12,18 @@ function error(msg: string) {
   return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
 }
 
+function wrapTool<T>(fn: (args: T) => Promise<unknown>) {
+  return async (args: T) => {
+    try {
+      return json(await fn(args));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "MCP tool error");
+      return error(message);
+    }
+  };
+}
+
 export function registerGoogleAdsTools(server: McpServer, client: GoogleAdsClient) {
   server.tool(
     "google_ads_account_metrics",
@@ -18,14 +32,10 @@ export function registerGoogleAdsTools(server: McpServer, client: GoogleAdsClien
       since: z.string().describe("Fecha inicio yyyy-mm-dd"),
       until: z.string().describe("Fecha fin yyyy-mm-dd"),
     },
-    async (args) => {
-      try {
-        const data = await client.accountMetrics(args);
-        return json({ total: data.length, metrics: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.accountMetrics(args);
+      return { total: data.length, metrics: data };
+    }),
   );
 
   server.tool(
@@ -39,14 +49,10 @@ export function registerGoogleAdsTools(server: McpServer, client: GoogleAdsClien
       status: z.enum(["ENABLED", "PAUSED", "REMOVED"]).optional()
         .describe("Filtrar por estado de campaña"),
     },
-    async (args) => {
-      try {
-        const data = await client.campaignMetrics(args);
-        return json({ total: data.length, metrics: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.campaignMetrics(args);
+      return { total: data.length, metrics: data };
+    }),
   );
 
   server.tool(
@@ -58,14 +64,10 @@ export function registerGoogleAdsTools(server: McpServer, client: GoogleAdsClien
       campaign_ids: z.array(z.string()).optional()
         .describe("Filtrar por IDs de campaña"),
     },
-    async (args) => {
-      try {
-        const data = await client.keywordMetrics(args);
-        return json({ total: data.length, keywords: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.keywordMetrics(args);
+      return { total: data.length, keywords: data };
+    }),
   );
 
   server.tool(
@@ -80,13 +82,9 @@ export function registerGoogleAdsTools(server: McpServer, client: GoogleAdsClien
         "ORDER BY metrics.clicks DESC",
       ),
     },
-    async (args) => {
-      try {
-        const data = await client.customQuery(args.query);
-        return json({ total: data.length, results: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const data = await client.customQuery(args.query);
+      return { total: data.length, results: data };
+    }),
   );
 }

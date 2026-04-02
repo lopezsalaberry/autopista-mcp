@@ -96,11 +96,19 @@ function releaseSlot(): void {
 // ─── HubSpot Search Helper (with throttle + retry) ──────────
 const MAX_RETRIES = 3;
 
+/** Shape of a contact from HubSpot search API. */
+interface HubSpotContact {
+  id?: string;
+  properties?: Record<string, string>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 async function hubspotSearch(
   filters: Array<Record<string, unknown>>,
   properties: string[] = [],
   limit = 1,
-): Promise<{ total: number; results: any[] }> {
+): Promise<{ total: number; results: HubSpotContact[] }> {
   await acquireSlot();
 
   try {
@@ -118,6 +126,7 @@ async function hubspotSearch(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (res.status === 429 && attempt < MAX_RETRIES) {
@@ -185,7 +194,11 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
       };
       if (after) body.after = after;
 
-      let data: any;
+      interface HubSpotPagedResponse {
+        results?: Array<{ properties?: Record<string, string> }>;
+        paging?: { next?: { after?: string } };
+      }
+      let data: HubSpotPagedResponse | undefined;
       for (let attempt = 0; attempt <= 5; attempt++) {
         const res = await fetch(`${API}/crm/v3/objects/contacts/search`, {
           method: "POST",
@@ -211,7 +224,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
           throw new Error(`HubSpot API error: ${res.status}`);
         }
 
-        data = await res.json();
+        data = await res.json() as HubSpotPagedResponse;
         break;
       }
 

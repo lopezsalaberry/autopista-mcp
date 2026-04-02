@@ -57,8 +57,10 @@ export function createApp(): express.Express {
     next();
   });
 
-  // --- Logging HTTP ---
-  app.use((pinoHttp as any).default?.({ logger }) ?? (pinoHttp as any)({ logger }));
+  // TYPE: pinoHttp has ESM/CJS dual-export interop — need to handle both default and direct export
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pinoHttpFn = (pinoHttp as Record<string, unknown>).default ?? pinoHttp;
+  app.use((pinoHttpFn as (opts: Record<string, unknown>) => import("express").RequestHandler)({ logger }));
 
   // --- Dashboard API (autenticacion propia via API key) ---
   app.use("/api/dashboard", dashboardRouter);

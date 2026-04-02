@@ -60,7 +60,7 @@ export const ALL_CANALES = Object.keys(CANAL_DISPLAY_NAMES);
 router.use("/auth", authRouter);
 
 // ─── JWT Auth Middleware (protects all routes below) ─────────
-router.use(dashboardAuth as any);
+router.use(dashboardAuth as unknown as import("express").RequestHandler);
 
 // ─── GET /vigencias ──────────────────────────────────────────
 router.get("/vigencias", (req: Request, res: Response) => {

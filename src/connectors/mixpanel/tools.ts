@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+
+import { logger } from "../../shared/logger.js";
 import { MixpanelClient } from "./client.js";
 
 function json(data: unknown): { content: Array<{ type: "text"; text: string }> } {
@@ -8,6 +10,18 @@ function json(data: unknown): { content: Array<{ type: "text"; text: string }> }
 
 function error(msg: string) {
   return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
+}
+
+function wrapTool<T>(fn: (args: T) => Promise<unknown>) {
+  return async (args: T) => {
+    try {
+      return json(await fn(args));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "MCP tool error");
+      return error(message);
+    }
+  };
 }
 
 export function registerMixpanelTools(server: McpServer, client: MixpanelClient) {
@@ -23,14 +37,7 @@ export function registerMixpanelTools(server: McpServer, client: MixpanelClient)
       on: z.string().optional().describe("Propiedad para segmentar (ej: 'properties[\"$browser\"]' o 'properties[\"utm_source\"]')"),
       where: z.string().optional().describe("Filtro de expresion (ej: 'properties[\"$city\"]==\"Buenos Aires\"')"),
     },
-    async (args) => {
-      try {
-        const data = await client.segmentation(args);
-        return json(data);
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => client.segmentation(args)),
   );
 
   server.tool(
@@ -43,15 +50,11 @@ export function registerMixpanelTools(server: McpServer, client: MixpanelClient)
       where: z.string().optional().describe("Filtro (ej: 'properties[\"$city\"]==\"Buenos Aires\"')"),
       limit: z.number().optional().describe("Maximo de eventos a devolver (default: 100, max recomendado: 1000)"),
     },
-    async (args) => {
-      try {
-        const limit = args.limit || 100;
-        const data = await client.exportEvents({ ...args, limit });
-        return json({ total: data.length, events: data });
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => {
+      const limit = args.limit || 100;
+      const data = await client.exportEvents({ ...args, limit });
+      return { total: data.length, events: data };
+    }),
   );
 
   server.tool(
@@ -62,14 +65,7 @@ export function registerMixpanelTools(server: McpServer, client: MixpanelClient)
       output_properties: z.array(z.string()).optional().describe("Propiedades a incluir en la respuesta (ej: ['$email', '$name', '$city'])"),
       page_size: z.number().optional().describe("Resultados por pagina (default: 25, max: 1000)"),
     },
-    async (args) => {
-      try {
-        const data = await client.profiles(args);
-        return json(data);
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => client.profiles(args)),
   );
 
   server.tool(
@@ -84,14 +80,7 @@ export function registerMixpanelTools(server: McpServer, client: MixpanelClient)
       on: z.string().optional().describe("Propiedad para segmentar"),
       where: z.string().optional().describe("Filtro de expresion"),
     },
-    async (args) => {
-      try {
-        const data = await client.funnels(args);
-        return json(data);
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => client.funnels(args)),
   );
 
   server.tool(
@@ -105,14 +94,7 @@ export function registerMixpanelTools(server: McpServer, client: MixpanelClient)
       retention_type: z.enum(["birth", "compounded"]).optional().describe("birth=desde primer evento, compounded=acumulativo"),
       unit: z.enum(["day", "week", "month"]).optional().describe("Granularidad de los periodos"),
     },
-    async (args) => {
-      try {
-        const data = await client.retention(args);
-        return json(data);
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => client.retention(args)),
   );
 
   server.tool(
@@ -121,13 +103,6 @@ export function registerMixpanelTools(server: McpServer, client: MixpanelClient)
     {
       script: z.string().describe("Script JQL. Ejemplo:\nfunction main() {\n  return Events({\n    from_date: '2026-01-01',\n    to_date: '2026-01-31'\n  }).groupBy(['name'], mixpanel.reducer.count())\n}"),
     },
-    async (args) => {
-      try {
-        const data = await client.jql(args.script);
-        return json(data);
-      } catch (e: any) {
-        return error(e.message);
-      }
-    },
+    wrapTool(async (args) => client.jql(args.script)),
   );
 }

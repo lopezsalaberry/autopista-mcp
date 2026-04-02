@@ -26,6 +26,7 @@ export class MetaAdsClient {
 
     const res = await fetch(url.toString(), {
       headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {
@@ -39,16 +40,21 @@ export class MetaAdsClient {
     const results: unknown[] = [];
     let url: string | null = null;
 
+    interface MetaPaginatedResponse {
+      data?: unknown[];
+      paging?: { next?: string };
+    }
+
     // Primera pagina
-    const firstPage = await this.get(endpoint, { ...params, limit: params.limit || "100" }) as any;
+    const firstPage = await this.get(endpoint, { ...params, limit: params.limit || "100" }) as MetaPaginatedResponse;
     results.push(...(firstPage.data || []));
 
     url = firstPage.paging?.next || null;
 
     while (url && results.length < 500) {
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const res = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
       if (!res.ok) break;
-      const page = await res.json() as any;
+      const page = await res.json() as MetaPaginatedResponse;
       results.push(...(page.data || []));
       url = page.paging?.next || null;
     }
