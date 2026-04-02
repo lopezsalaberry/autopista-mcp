@@ -479,26 +479,26 @@ function VendedoresPanel({ crossData, ownerNames, ownerTeams, selectedVendedor, 
             <table className="data-table sortable-table vendedores-table">
               <thead>
                 <tr>
-                  <th style={{ width: '40px', textAlign: 'center' }}>#</th>
-                  <th className="sortable-th" style={{ textAlign: 'left' }} onClick={() => setSort(s => toggleSort(s, 'displayName'))}>
+                  <th style={{ width: '32px', textAlign: 'center' }}>#</th>
+                  <th className="sortable-th" style={{ textAlign: 'left', width: '22%' }} onClick={() => setSort(s => toggleSort(s, 'displayName'))}>
                     Vendedor <SortIcon active={sort?.key === 'displayName'} dir={sort?.dir} />
                   </th>
                   {hasTeams && (
-                    <th className="sortable-th" style={{ textAlign: 'left' }} onClick={() => setSort(s => toggleSort(s, 'team'))}>
+                    <th className="sortable-th" style={{ textAlign: 'left', width: '24%' }} onClick={() => setSort(s => toggleSort(s, 'team'))}>
                       Supervisor <SortIcon active={sort?.key === 'team'} dir={sort?.dir} />
                     </th>
                   )}
-                  <th style={{ textAlign: 'left', width: '15%' }}>Distribución</th>
-                  <th className="sortable-th" onClick={() => setSort(s => toggleSort(s, 'count'))}>
+                  <th style={{ textAlign: 'left', width: '14%' }}>Distribución</th>
+                  <th className="sortable-th" style={{ width: '55px' }} onClick={() => setSort(s => toggleSort(s, 'count'))}>
                     Leads <SortIcon active={sort?.key === 'count'} dir={sort?.dir} />
                   </th>
-                  <th className="sortable-th" onClick={() => setSort(s => toggleSort(s, 'converted'))}>
+                  <th className="sortable-th" style={{ width: '50px' }} onClick={() => setSort(s => toggleSort(s, 'converted'))}>
                     Conv. <SortIcon active={sort?.key === 'converted'} dir={sort?.dir} />
                   </th>
-                  <th className="sortable-th" onClick={() => setSort(s => toggleSort(s, 'rate'))}>
+                  <th className="sortable-th" style={{ width: '70px' }} onClick={() => setSort(s => toggleSort(s, 'rate'))}>
                     % Conv. <SortIcon active={sort?.key === 'rate'} dir={sort?.dir} />
                   </th>
-                  <th style={{ width: '50px', textAlign: 'center' }}>%</th>
+                  <th style={{ width: '38px', textAlign: 'center' }}>%</th>
                 </tr>
               </thead>
               <tbody>

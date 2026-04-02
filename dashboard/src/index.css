@@ -1728,8 +1728,7 @@ body { min-height: 100vh; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
-  display: inline-block;
+  display: block;
 }
 
 @keyframes fadeIn {
