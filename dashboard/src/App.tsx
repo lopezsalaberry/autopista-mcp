@@ -10,6 +10,7 @@ interface CrossDataRow {
   date: string
   leads: number
   converted: number
+  ownerId: string
 }
 
 // ── Types ───────────────────────────────────────────────────
@@ -325,17 +326,257 @@ const CANAL_DISPLAY: Record<string, string> = {
   'BBDD': 'BBDD',
 }
 
-function InteractiveDataSection({ data, crossData, selectedDate }: {
+// ══════════════════════════════════════════════════════════════
+// ── VENDEDORES PANEL (App-level, filters everything below) ──
+// ══════════════════════════════════════════════════════════════
+const MIN_LEADS_FOR_RATE_RANK = 5
+
+function VendedoresPanel({ crossData, ownerNames, ownerTeams, selectedVendedor, onSelectVendedor, expanded, onToggleExpanded }: {
+  crossData: CrossDataRow[]
+  ownerNames: Record<string, string>
+  ownerTeams: Record<string, string>
+  selectedVendedor: string | null
+  onSelectVendedor: (v: string | null) => void
+  expanded: boolean
+  onToggleExpanded: () => void
+}) {
+  const [rankBy, setRankBy] = useState<'leads' | 'rate'>('leads')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const [selectedTeam, setSelectedTeam] = useState<string | null>(null)
+
+  const crossDataReady = crossData.length > 0
+
+  const vendedores = useMemo(() => {
+    if (!crossDataReady) return []
+
+    const map = new Map<string, { leads: number; converted: number }>()
+    for (const r of crossData) {
+      const existing = map.get(r.ownerId)
+      if (existing) {
+        existing.leads += r.leads
+        existing.converted += r.converted
+      } else {
+        map.set(r.ownerId, { leads: r.leads, converted: r.converted })
+      }
+    }
+
+    const total = Array.from(map.values()).reduce((s, v) => s + v.leads, 0)
+    let items = Array.from(map.entries())
+      .map(([ownerId, v]) => ({
+        ownerId,
+        name: ownerId === 'sin_asignar' ? 'Sin asignar' : (ownerNames[ownerId] || `ID ${ownerId}`),
+        team: ownerTeams[ownerId] || '',
+        leads: v.leads,
+        converted: v.converted,
+        rate: v.leads > 0 ? Number(((v.converted / v.leads) * 100).toFixed(2)) : 0,
+        pct: total > 0 ? Number(((v.leads / total) * 100).toFixed(1)) : 0,
+      }))
+      .filter(v => v.leads > 0)
+
+    // Filter by selected team
+    if (selectedTeam) {
+      items = items.filter(v => v.team === selectedTeam)
+    }
+
+    if (rankBy === 'rate') {
+      items.sort((a, b) => {
+        const aQ = a.leads >= MIN_LEADS_FOR_RATE_RANK ? 1 : 0
+        const bQ = b.leads >= MIN_LEADS_FOR_RATE_RANK ? 1 : 0
+        if (aQ !== bQ) return bQ - aQ
+        return b.rate - a.rate
+      })
+    } else {
+      items.sort((a, b) => b.leads - a.leads)
+    }
+
+    return items
+  }, [crossData, crossDataReady, ownerNames, ownerTeams, rankBy, selectedTeam])
+
+  // Extract unique teams that have active vendedores (leads > 0) for the dropdown
+  // We compute this from the unfiltered vendedores (before team filter)
+  const activeTeams = useMemo(() => {
+    if (!crossDataReady) return new Set<string>()
+
+    // Get all ownerIds with leads
+    const activeOwners = new Set<string>()
+    for (const r of crossData) {
+      if (r.leads > 0) activeOwners.add(r.ownerId)
+    }
+
+    // Collect teams from active owners only
+    const teams = new Set<string>()
+    Array.from(activeOwners).forEach(ownerId => {
+      const team = ownerTeams[ownerId]
+      if (team) teams.add(team)
+    })
+    return teams
+  }, [crossData, crossDataReady, ownerTeams])
+
+  const uniqueTeams = useMemo(() => {
+    return Array.from(activeTeams).sort()
+  }, [activeTeams])
+
+  const hasTeams = uniqueTeams.length > 0
+  const maxLeads = Math.max(...vendedores.map(v => v.leads), 1)
+
+  if (!crossDataReady) return null
+
+  const selectedName = selectedVendedor
+    ? (ownerNames[selectedVendedor] || selectedVendedor)
+    : null
+
+  return (
+    <div className="panel vendedores-panel">
+      <div className="section-title" onClick={onToggleExpanded} style={{ cursor: 'pointer' }}>
+        <span className="icon">👥</span> Vendedores
+        {selectedName && <span className="vendedor-active-label">— {selectedName}</span>}
+        <span className="vendedores-count">{vendedores.length} vendedores</span>
+        <div className="vendedor-controls">
+          {expanded && (
+            <>
+              {hasTeams && (
+                <select
+                  className="team-filter-select"
+                  value={selectedTeam || ''}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => { setSelectedTeam(e.target.value || null) }}
+                >
+                  <option value="">Todos los supervisores</option>
+                  {uniqueTeams.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                className={`rank-toggle ${rankBy === 'leads' ? 'active' : ''}`}
+                onClick={e => { e.stopPropagation(); setRankBy('leads') }}
+              >
+                Por Leads
+              </button>
+              <button
+                className={`rank-toggle ${rankBy === 'rate' ? 'active' : ''}`}
+                onClick={e => { e.stopPropagation(); setRankBy('rate') }}
+              >
+                Por Conversión
+              </button>
+            </>
+          )}
+        </div>
+        {selectedVendedor && (
+          <button className="filter-clear" onClick={e => { e.stopPropagation(); onSelectVendedor(null) }}>
+            ✕ Quitar filtro
+          </button>
+        )}
+        <span className={`collapse-chevron ${expanded ? 'expanded' : ''}`}>▾</span>
+      </div>
+      {expanded && (
+        <>
+          {vendedores.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              No hay vendedores{selectedTeam ? ` del supervisor "${selectedTeam}"` : ''}
+            </div>
+          ) : (
+            <table className="data-table sortable-table vendedores-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                  <th className="sortable-th" style={{ textAlign: 'left' }} onClick={() => setSort(s => toggleSort(s, 'displayName'))}>
+                    Vendedor <SortIcon active={sort?.key === 'displayName'} dir={sort?.dir} />
+                  </th>
+                  {hasTeams && (
+                    <th className="sortable-th" style={{ textAlign: 'left' }} onClick={() => setSort(s => toggleSort(s, 'team'))}>
+                      Supervisor <SortIcon active={sort?.key === 'team'} dir={sort?.dir} />
+                    </th>
+                  )}
+                  <th style={{ textAlign: 'left', width: '15%' }}>Distribución</th>
+                  <th className="sortable-th" onClick={() => setSort(s => toggleSort(s, 'count'))}>
+                    Leads <SortIcon active={sort?.key === 'count'} dir={sort?.dir} />
+                  </th>
+                  <th className="sortable-th" onClick={() => setSort(s => toggleSort(s, 'converted'))}>
+                    Conv. <SortIcon active={sort?.key === 'converted'} dir={sort?.dir} />
+                  </th>
+                  <th className="sortable-th" onClick={() => setSort(s => toggleSort(s, 'rate'))}>
+                    % Conv. <SortIcon active={sort?.key === 'rate'} dir={sort?.dir} />
+                  </th>
+                  <th style={{ width: '50px', textAlign: 'center' }}>%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applySortFn(
+                  vendedores.map((v, i) => ({
+                    ...v,
+                    displayName: v.name,
+                    count: v.leads,
+                    _rank: i + 1,
+                  })),
+                  sort,
+                ).map(v => {
+                  const rank = (v as Record<string, unknown>)._rank as number
+                  const isActive = selectedVendedor === v.ownerId
+                  const isDimmed = selectedVendedor && selectedVendedor !== v.ownerId
+                  const belowThreshold = rankBy === 'rate' && v.leads < MIN_LEADS_FOR_RATE_RANK
+
+                  return (
+                    <tr
+                      key={v.ownerId}
+                      className={`drill-row vendedor-row ${isActive ? 'vendedor-active' : ''} ${isDimmed ? 'vendedor-dimmed' : ''} ${belowThreshold ? 'vendedor-below-threshold' : ''}`}
+                      onClick={() => onSelectVendedor(selectedVendedor === v.ownerId ? null : v.ownerId)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td className="vendedor-rank" style={{ textAlign: 'center' }}>
+                        <span className="rank-num">{rank}</span>
+                      </td>
+                      <td style={{ textAlign: 'left' }}>
+                        <span className="vendedor-name">{v.name}</span>
+                      </td>
+                      {hasTeams && (
+                        <td style={{ textAlign: 'left' }}>
+                          <span className="vendedor-team">{v.team || '—'}</span>
+                        </td>
+                      )}
+                      <td style={{ textAlign: 'left' }}>
+                        <div className="inline-bar-track">
+                          <div
+                            className="inline-bar-fill vendedor-bar"
+                            style={{ width: `${(v.leads / maxLeads) * 100}%` }}
+                          />
+                        </div>
+                      </td>
+                      <td>{fmt(v.leads)}</td>
+                      <td>{fmt(v.converted)}</td>
+                      <td>
+                        <span className={`conv-badge ${convClass(v.rate)}`}>
+                          {fmtPct(v.rate)}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {v.pct}%
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function InteractiveDataSection({ data, crossData, selectedDate, selectedVendedor, ownerNames }: {
   data: LeadsData
   crossData: CrossDataRow[]
   selectedDate: string | null
+  selectedVendedor: string | null
+  ownerNames: Record<string, string>
 }) {
   const [selectedCat, setSelectedCatRaw] = useState<string | null>(null)
   const [selectedCanal, setSelectedCanal] = useState<string | null>(null)
   const [canalSort, setCanalSort] = useState<SortState | null>(null)
   const [campanaSort, setCampanaSort] = useState<SortState | null>(null)
 
-  // Reset canal when category changes (avoids cascading setState in useEffect)
+  // Reset canal when category changes
   const setSelectedCat = useCallback((valOrFn: string | null | ((prev: string | null) => string | null)) => {
     setSelectedCatRaw(prev => {
       const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn
@@ -348,8 +589,8 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
   const crossDataReady = crossData.length > 0
 
   const canalsToShow = useMemo(() => {
-    // Fallback to server-side data while crossData loads (and no date/cat filter)
-    if (!crossDataReady || (!selectedCat && !selectedDate)) {
+    // Fallback to server-side data while crossData loads (and no date/cat/vendedor filter)
+    if (!crossDataReady || (!selectedCat && !selectedDate && !selectedVendedor)) {
       return data.byCanal.map(c => ({
         value: c.name,
         displayName: c.displayName,
@@ -364,6 +605,7 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
     let rows = crossData
     if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
     if (selectedCat) rows = rows.filter(r => r.categoria === selectedCat)
+    if (selectedVendedor) rows = rows.filter(r => r.ownerId === selectedVendedor)
 
     const map = new Map<string, { leads: number; converted: number }>()
     for (const r of rows) {
@@ -388,11 +630,11 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
       }))
       .filter(c => c.count > 0)
       .sort((a, b) => b.count - a.count)
-  }, [crossData, crossDataReady, selectedCat, selectedDate, data.byCanal])
+  }, [crossData, crossDataReady, selectedCat, selectedVendedor, selectedDate, data.byCanal])
 
   const campanasToShow = useMemo(() => {
     // Fallback to server-side data while crossData loads
-    if (!crossDataReady || (!selectedCat && !selectedCanal && !selectedDate)) {
+    if (!crossDataReady || (!selectedCat && !selectedCanal && !selectedDate && !selectedVendedor)) {
       return data.topCampanas.map(c => ({
         value: c.name,
         displayName: c.name,
@@ -407,6 +649,7 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
     let rows = crossData
     if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
     if (selectedCat) rows = rows.filter(r => r.categoria === selectedCat)
+    if (selectedVendedor) rows = rows.filter(r => r.ownerId === selectedVendedor)
     if (selectedCanal) rows = rows.filter(r => r.canal === selectedCanal)
 
     const map = new Map<string, { leads: number; converted: number }>()
@@ -431,15 +674,18 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
       }))
       .filter(c => c.count > 0)
       .sort((a, b) => b.count - a.count)
-  }, [crossData, crossDataReady, selectedCat, selectedCanal, selectedDate, data.topCampanas])
+  }, [crossData, crossDataReady, selectedCat, selectedCanal, selectedVendedor, selectedDate, data.topCampanas])
 
   const maxCanalCount = Math.max(...canalsToShow.map(c => c.count), 1)
 
   // ── Categorías — recalculate when date is selected ─────────
   const categoriasToShow = useMemo(() => {
-    if (!selectedDate || !crossDataReady) return data.byCategoria
+    if ((!selectedDate && !selectedVendedor) || !crossDataReady) return data.byCategoria
 
-    const rows = crossData.filter(r => r.date === selectedDate)
+    let rows = crossData
+    if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
+    if (selectedVendedor) rows = rows.filter(r => r.ownerId === selectedVendedor)
+
     const catMap = new Map<string, { count: number; converted: number }>()
     for (const r of rows) {
       const existing = catMap.get(r.categoria)
@@ -464,10 +710,10 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
         }
       })
       .filter(c => c.count > 0)
-  }, [selectedDate, crossData, crossDataReady, data.byCategoria])
+  }, [selectedDate, selectedVendedor, crossData, crossDataReady, data.byCategoria])
 
   // ── Filter state helpers ───────────────────────────────────
-  const hasAnyFilter = !!selectedCat || !!selectedCanal
+  const hasAnyFilter = !!selectedCat || !!selectedCanal || !!selectedVendedor
 
   const clearAll = () => {
     setSelectedCat(null)
@@ -475,8 +721,9 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
   }
 
   // Build title suffixes
-  const canalTitle = selectedCat || ''
-  const campanaTitle = [selectedCat, selectedCanal && (CANAL_DISPLAY[selectedCanal] || selectedCanal)].filter(Boolean).join(' › ')
+  const vendedorName = selectedVendedor ? (ownerNames[selectedVendedor] || selectedVendedor) : ''
+  const canalTitle = [selectedCat, vendedorName].filter(Boolean).join(' › ')
+  const campanaTitle = [selectedCat, vendedorName, selectedCanal && (CANAL_DISPLAY[selectedCanal] || selectedCanal)].filter(Boolean).join(' › ')
 
   return (
     <>
@@ -509,6 +756,12 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
           <div className="filter-active-banner">
             Filtros activos:
             {selectedCat && <span className="filter-chip">{selectedCat}</span>}
+            {selectedVendedor && (
+              <>
+                <span className="filter-arrow-sep">›</span>
+                <span className="filter-chip">{ownerNames[selectedVendedor] || selectedVendedor}</span>
+              </>
+            )}
             {selectedCanal && (
               <>
                 <span className="filter-arrow-sep">›</span>
@@ -634,6 +887,59 @@ function InteractiveDataSection({ data, crossData, selectedDate }: {
 // ══════════════════════════════════════════════════════════════
 // ── SETTINGS PAGE ───────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
+// ── Supervisor Accordion Group (controlled — parent manages which is open) ──
+function SupervisorGroup({ label, owners, excludedIds, excludedCount, total, allExcluded, someExcluded, onToggleGroup, onToggleOwner, isOpen, onToggle }: {
+  label: string
+  owners: Array<[string, string]>
+  excludedIds: string[]
+  excludedCount: number
+  total: number
+  allExcluded: boolean
+  someExcluded: boolean
+  onToggleGroup: () => void
+  onToggleOwner: (id: string) => void
+  isOpen: boolean
+  onToggle: () => void
+}) {
+  return (
+    <div className={`supervisor-group ${allExcluded ? 'all-excluded' : ''}`}>
+      <div className="supervisor-group-header" onClick={onToggle}>
+        <input
+          type="checkbox"
+          checked={allExcluded}
+          ref={el => { if (el) el.indeterminate = someExcluded }}
+          onChange={e => { e.stopPropagation(); onToggleGroup() }}
+          onClick={e => e.stopPropagation()}
+        />
+        <span className="supervisor-group-name">{label}</span>
+        <span className="supervisor-group-count">
+          {excludedCount > 0 && <span className="supervisor-excl-badge">{excludedCount}</span>}
+          {total} vendedores
+        </span>
+        <span className={`collapse-chevron ${isOpen ? 'expanded' : ''}`}>▾</span>
+      </div>
+      {isOpen && (
+        <div className="supervisor-group-body">
+          {owners.map(([id, name]) => {
+            const isExcluded = excludedIds.includes(id)
+            return (
+              <label key={id} className={`excluded-owner-item ${isExcluded ? 'is-excluded' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={isExcluded}
+                  onChange={() => onToggleOwner(id)}
+                />
+                <span className="excluded-owner-name">{name}</span>
+                <span className="excluded-owner-id">ID: {id}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SettingsPage({ settings, onSave, onBack, vigenciasForSettings }: {
   settings: Settings
   onSave: (s: Settings) => void
@@ -642,6 +948,30 @@ function SettingsPage({ settings, onSave, onBack, vigenciasForSettings }: {
 }) {
   const [draft, setDraft] = useState<Settings>({ ...settings, vigenciaOverrides: { ...settings.vigenciaOverrides } })
   const [saved, setSaved] = useState(false)
+
+  // Excluded owners state
+  const [allOwners, setAllOwners] = useState<Record<string, string>>({})
+  const [allTeams, setAllTeams] = useState<Record<string, string>>({})
+  const [excludedIds, setExcludedIds] = useState<string[]>([])
+  const [excludedLoading, setExcludedLoading] = useState(true)
+  const [excludedSaving, setExcludedSaving] = useState(false)
+  const [excludedSaved, setExcludedSaved] = useState(false)
+  const [excludedError, setExcludedError] = useState<string | null>(null)
+
+  // Fetch owners + config on mount
+  useEffect(() => {
+    Promise.all([
+      fetchApi<{ names: Record<string, string>; teams: Record<string, string> }>('/owners'),
+      fetchApi<{ excludedOwnerIds: string[] }>('/config'),
+    ])
+      .then(([ownersData, config]) => {
+        setAllOwners(ownersData.names)
+        setAllTeams(ownersData.teams)
+        setExcludedIds(config.excludedOwnerIds)
+      })
+      .catch(err => setExcludedError(err.message))
+      .finally(() => setExcludedLoading(false))
+  }, [])
 
   const handleSave = () => {
     onSave(draft)
@@ -653,6 +983,40 @@ function SettingsPage({ settings, onSave, onBack, vigenciasForSettings }: {
     setDraft(prev => ({ ...prev, [key]: value }))
     setSaved(false)
   }
+
+  const toggleExcluded = (ownerId: string) => {
+    setExcludedIds(prev =>
+      prev.includes(ownerId)
+        ? prev.filter(id => id !== ownerId)
+        : [...prev, ownerId]
+    )
+    setExcludedSaved(false)
+  }
+
+  const saveExcluded = async () => {
+    if (excludedIds.length === 0) {
+      setExcludedError('Debe haber al menos 1 propietario excluido')
+      return
+    }
+    setExcludedSaving(true)
+    setExcludedError(null)
+    try {
+      await fetch(`${API_BASE}/config/excluded-owners`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ excludedOwnerIds: excludedIds }),
+      })
+      setExcludedSaved(true)
+      setTimeout(() => setExcludedSaved(false), 3000)
+    } catch (err) {
+      setExcludedError(err instanceof Error ? err.message : 'Error al guardar')
+    } finally {
+      setExcludedSaving(false)
+    }
+  }
+
+  const [ownerSearch, setOwnerSearch] = useState('')
+  const [openGroup, setOpenGroup] = useState<string | null>(null)
 
   return (
     <div className="dashboard">
@@ -793,7 +1157,157 @@ function SettingsPage({ settings, onSave, onBack, vigenciasForSettings }: {
           </table>
         </div>
 
-        {/* Save */}
+        {/* Unified Exclusion Manager — Supervisor + Vendedores tree */}
+        <div className="panel">
+          <div className="section-title">
+            <span className="icon">🚫</span> Exclusiones
+          </div>
+          <p className="settings-desc">
+            Excluí vendedores individuales o supervisores completos.
+            Los excluidos no aparecen en KPIs, ranking, ni datos del dashboard.
+            <strong> Al guardar se limpia el cache automáticamente.</strong>
+          </p>
+
+          {excludedLoading ? (
+            <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+              Cargando propietarios...
+            </div>
+          ) : excludedError && Object.keys(allOwners).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '24px', color: 'var(--accent-red)' }}>
+              Error: {excludedError}
+            </div>
+          ) : (
+            <>
+              <input
+                type="text"
+                className="owner-search-input"
+                placeholder="Buscar supervisor o vendedor..."
+                value={ownerSearch}
+                onChange={e => setOwnerSearch(e.target.value)}
+              />
+
+              {/* Summary bar */}
+              <div className="exclusion-summary-bar">
+                <span>{excludedIds.length} excluidos de {Object.keys(allOwners).length} propietarios</span>
+                <button
+                  className="btn-primary"
+                  onClick={saveExcluded}
+                  disabled={excludedSaving}
+                >
+                  {excludedSaving ? 'Guardando...' : excludedSaved ? '✓ Guardado' : 'Guardar Exclusiones'}
+                </button>
+              </div>
+
+              {excludedError && (
+                <div style={{ color: 'var(--accent-red)', fontSize: '0.85rem', marginTop: '4px', marginBottom: '8px' }}>
+                  {excludedError}
+                </div>
+              )}
+
+              {/* Tree view */}
+              <div className="exclusion-tree">
+                {(() => {
+                  // Build supervisor → owners map
+                  const supervisorMap = new Map<string, Array<[string, string]>>()
+                  const unassigned: Array<[string, string]> = []
+                  const searchQ = ownerSearch.toLowerCase().trim()
+
+                  for (const [ownerId, ownerName] of Object.entries(allOwners)) {
+                    const team = allTeams[ownerId]
+                    if (team) {
+                      const existing = supervisorMap.get(team) || []
+                      existing.push([ownerId, ownerName])
+                      supervisorMap.set(team, existing)
+                    } else {
+                      unassigned.push([ownerId, ownerName])
+                    }
+                  }
+
+                  // Sort owners within each group: excluded first, then alphabetical
+                  const sortOwners = (arr: Array<[string, string]>) =>
+                    arr.sort(([aId, aName], [bId, bName]) => {
+                      const aE = excludedIds.includes(aId) ? 0 : 1
+                      const bE = excludedIds.includes(bId) ? 0 : 1
+                      if (aE !== bE) return aE - bE
+                      return aName.localeCompare(bName)
+                    })
+
+                  // Build sorted supervisor list
+                  const groups: Array<{ label: string; ownerIds: string[]; owners: Array<[string, string]> }> = []
+
+                  const sortedSupervisors = Array.from(supervisorMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+                  for (const [supervisor, owners] of sortedSupervisors) {
+                    sortOwners(owners)
+                    groups.push({ label: supervisor, ownerIds: owners.map(o => o[0]), owners })
+                  }
+                  if (unassigned.length > 0) {
+                    sortOwners(unassigned)
+                    groups.push({ label: 'Sin supervisor', ownerIds: unassigned.map(o => o[0]), owners: unassigned })
+                  }
+
+                  // Filter by search
+                  const filteredGroups = searchQ
+                    ? groups.map(g => {
+                        const labelMatch = g.label.toLowerCase().includes(searchQ)
+                        const filteredOwners = labelMatch
+                          ? g.owners
+                          : g.owners.filter(([id, name]) => name.toLowerCase().includes(searchQ) || id.includes(searchQ))
+                        if (filteredOwners.length === 0) return null
+                        return { ...g, owners: filteredOwners, ownerIds: filteredOwners.map(o => o[0]) }
+                      }).filter(Boolean) as typeof groups
+                    : groups
+
+                  if (filteredGroups.length === 0) {
+                    return (
+                      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        Sin resultados para &quot;{ownerSearch}&quot;
+                      </div>
+                    )
+                  }
+
+                  return filteredGroups.map(group => {
+                    const excludedCount = group.ownerIds.filter(id => excludedIds.includes(id)).length
+                    const allExcluded = excludedCount === group.ownerIds.length
+                    const someExcluded = excludedCount > 0 && !allExcluded
+
+                    const toggleGroup = () => {
+                      if (allExcluded) {
+                        setExcludedIds(prev => prev.filter(id => !group.ownerIds.includes(id)))
+                      } else {
+                        setExcludedIds(prev => {
+                          const s = new Set(prev)
+                          for (const id of group.ownerIds) s.add(id)
+                          return Array.from(s)
+                        })
+                      }
+                      setExcludedSaved(false)
+                    }
+
+                    const isSearching = !!searchQ
+
+                    return (
+                      <SupervisorGroup
+                        key={group.label}
+                        label={group.label}
+                        owners={group.owners}
+                        excludedIds={excludedIds}
+                        excludedCount={excludedCount}
+                        total={group.ownerIds.length}
+                        allExcluded={allExcluded}
+                        someExcluded={someExcluded}
+                        onToggleGroup={toggleGroup}
+                        onToggleOwner={(id) => { toggleExcluded(id) }}
+                        isOpen={isSearching ? true : openGroup === group.label}
+                        onToggle={() => setOpenGroup(prev => prev === group.label ? null : group.label)}
+                      />
+                    )
+                  })
+                })()}
+              </div>
+            </>
+          )}
+        </div>
+        {/* Save Vigencia Settings */}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button className="btn-secondary" onClick={onBack}>Cancelar</button>
           <button className="btn-primary" onClick={handleSave}>
@@ -822,6 +1336,20 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null)
+  const [ownerNames, setOwnerNames] = useState<Record<string, string>>({})
+  const [ownerTeams, setOwnerTeams] = useState<Record<string, string>>({})
+  const [vendedoresExpanded, setVendedoresExpanded] = useState(false)
+
+  // Fetch owner names + teams once on mount
+  useEffect(() => {
+    fetchApi<{ names: Record<string, string>; teams: Record<string, string> }>('/owners')
+      .then(res => {
+        setOwnerNames(res.names)
+        setOwnerTeams(res.teams)
+      })
+      .catch(err => console.warn('Failed to load owner names:', err))
+  }, [])
 
   // Load vigencias on mount, then apply per-month overrides
   useEffect(() => {
@@ -1081,15 +1609,27 @@ export default function App() {
           <>
             <KPICards data={data} settings={settings} selectedDate={selectedDate} crossData={crossData} />
 
+            {/* Vendedores — Top-level filter, collapsed by default */}
+            <VendedoresPanel
+              crossData={crossData}
+              ownerNames={ownerNames}
+              ownerTeams={ownerTeams}
+              selectedVendedor={selectedVendedor}
+              onSelectVendedor={setSelectedVendedor}
+              expanded={vendedoresExpanded}
+              onToggleExpanded={() => setVendedoresExpanded(v => !v)}
+            />
+
             <DailyTimeline
               crossData={crossData}
               from={data.period.from}
               to={data.period.to}
               selectedDate={selectedDate}
               onSelectDate={setSelectedDate}
+              selectedVendedor={selectedVendedor}
             />
 
-            <InteractiveDataSection data={data} crossData={crossData} selectedDate={selectedDate} />
+            <InteractiveDataSection data={data} crossData={crossData} selectedDate={selectedDate} selectedVendedor={selectedVendedor} ownerNames={ownerNames} />
           </>
         )}
       </div>

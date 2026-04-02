@@ -28,6 +28,7 @@ interface CrossDataRow {
   date: string
   leads: number
   converted: number
+  ownerId: string
 }
 
 interface DayPoint {
@@ -47,6 +48,7 @@ interface DailyTimelineProps {
   to: string          // YYYY-MM-DD
   selectedDate: string | null
   onSelectDate: (date: string | null) => void
+  selectedVendedor?: string | null
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -134,12 +136,19 @@ function CustomTooltip({ active, payload, visibleSeries }: any) {
 // ── Component ───────────────────────────────────────────────
 
 export function DailyTimeline({
-  crossData,
+  crossData: rawCrossData,
   from,
   to,
   selectedDate,
   onSelectDate,
+  selectedVendedor,
 }: DailyTimelineProps) {
+
+  // Pre-filter crossData by vendedor if selected
+  const crossData = useMemo(() => {
+    if (!selectedVendedor) return rawCrossData
+    return rawCrossData.filter(r => r.ownerId === selectedVendedor)
+  }, [rawCrossData, selectedVendedor])
 
   // Series visibility toggle — start with defaultHidden series hidden
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(

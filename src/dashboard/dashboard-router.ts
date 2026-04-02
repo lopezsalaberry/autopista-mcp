@@ -3,7 +3,12 @@
  *
  * Endpoints:
  * - GET /api/dashboard/vigencias?year=2026&startDay=21&endDay=22
- * - GET /api/dashboard/leads?from=YYYY-MM-DD&to=YYYY-MM-DD  (Sprint 2)
+ * - GET /api/dashboard/leads?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * - GET /api/dashboard/cross-data?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * - GET /api/dashboard/breakdown?from=&to=&dimension=
+ * - GET /api/dashboard/owners (HubSpot owner name resolution)
+ * - GET /api/dashboard/config (current dashboard configuration)
+ * - PUT /api/dashboard/config/excluded-owners (update excluded owners)
  * - GET /api/dashboard/cache/stats
  * - DELETE /api/dashboard/cache (clear cache)
  *
@@ -12,19 +17,21 @@
 
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { logger } from "../shared/logger.js";
+import { config } from "../shared/config.js";
 import { getAllVigencias, getPreviousPeriod, type VigenciaConfig } from "./vigencia.js";
 import { dashboardCache } from "./dashboard-cache.js";
+import { DashboardConfig } from "./dashboard-config.js";
 import { fetchLeadsData, fetchBreakdown, fetchCrossData } from "./hubspot-queries.js";
 
 const router = Router();
 
-// ─── Constants ───────────────────────────────────────────────
-/** Owner IDs to always exclude from lead counts. */
-export const EXCLUDED_OWNER_IDS = [
-  "2058415376", "79635496", "78939002", "79868309", "79868347",
-  "83194003", "83194004", "83194005", "83194006", "83194007",
-  "83194008", "596180848", "350718277", "1031288250",
-];
+// ─── Dynamic Configuration ──────────────────────────────────
+export const dashboardConfig = new DashboardConfig();
+
+/** Get current excluded owner IDs (delegates to runtime config). */
+export function getExcludedOwnerIds(): string[] {
+  return dashboardConfig.getExcludedOwnerIds();
+}
 
 /** Maximum age to include (contacts with edad > this are excluded). */
 export const MAX_AGE = 64;
@@ -254,6 +261,150 @@ router.get("/cross-data", async (req: Request, res: Response) => {
   }
 });
 
+// ─── Owner name resolution ───────────────────────────────────
+const HUBSPOT_API = "https://api.hubapi.com";
+
+/** Normalize owner name to title case, with email fallback. */
+function normalizeName(first?: string, last?: string, email?: string, id?: string): string {
+  const raw = [first, last].filter(Boolean).join(" ").trim();
+  if (raw) {
+    return raw.replace(/\b\w+/g, w =>
+      w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+    );
+  }
+  if (email) {
+    const prefix = email.split("@")[0].replace(/[._]/g, " ");
+    return prefix.replace(/\b\w+/g, w =>
+      w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(),
+    );
+  }
+  return id || "Desconocido";
+}
+
+router.get("/owners", async (_req: Request, res: Response) => {
+  const cacheKey = dashboardCache.key("owners-v2", {});
+  const cached = dashboardCache.get<{ names: Record<string, string>; teams: Record<string, string> }>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
+  try {
+    const response = await fetch(`${HUBSPOT_API}/crm/v3/owners?limit=500`, {
+      headers: { Authorization: `Bearer ${config.HUBSPOT_ACCESS_TOKEN}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Owners API: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const names: Record<string, string> = {};
+    const teams: Record<string, string> = {};
+
+    for (const o of (data.results || []) as Array<{
+      id: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      teams?: Array<{ id: string; name: string; primary?: boolean }>;
+    }>) {
+      names[o.id] = normalizeName(o.firstName, o.lastName, o.email, o.id);
+      // Extract primary team name (fallback to first team), strip "Equipo de " prefix
+      if (o.teams && o.teams.length > 0) {
+        const primary = o.teams.find(t => t.primary) || o.teams[0];
+        let teamName = primary.name.trim();
+        // Strip common prefixes to show just supervisor/region
+        if (teamName.startsWith('Equipo de ')) teamName = teamName.substring('Equipo de '.length);
+        if (teamName.startsWith('Equipo ')) teamName = teamName.substring('Equipo '.length);
+        teams[o.id] = teamName.trim();
+      }
+    }
+
+    const result = { names, teams };
+    dashboardCache.set(cacheKey, result, 3600); // 1 hour
+    res.json(result);
+  } catch (err: unknown) {
+    logger.error({ err }, "Error fetching HubSpot owners");
+    res.status(500).json({
+      error: {
+        code: "HUBSPOT_ERROR",
+        message: err instanceof Error ? err.message : "Failed to fetch owners",
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// ─── Dashboard configuration ────────────────────────────────
+router.get("/config", (_req: Request, res: Response) => {
+  res.json(dashboardConfig.getConfig());
+});
+
+router.put("/config/excluded-owners", (req: Request, res: Response) => {
+  const body = req.body;
+
+  // Validate input
+  if (!body || !body.excludedOwnerIds) {
+    res.status(400).json({
+      error: { code: "INVALID_PARAMS", message: "excludedOwnerIds array is required" },
+    });
+    return;
+  }
+
+  if (!Array.isArray(body.excludedOwnerIds)) {
+    res.status(400).json({
+      error: { code: "INVALID_FORMAT", message: "excludedOwnerIds must be an array" },
+    });
+    return;
+  }
+
+  if (body.excludedOwnerIds.length === 0) {
+    res.status(400).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "excludedOwnerIds cannot be empty (at least 1 owner must be excluded to prevent accidental data exposure)",
+      },
+    });
+    return;
+  }
+
+  if (body.excludedOwnerIds.length > 100) {
+    res.status(400).json({
+      error: { code: "VALIDATION_ERROR", message: "excludedOwnerIds cannot exceed 100 entries" },
+    });
+    return;
+  }
+
+  // Validate each ID is a numeric string
+  const invalidIds = body.excludedOwnerIds.filter(
+    (id: unknown) => typeof id !== "string" && typeof id !== "number",
+  );
+  if (invalidIds.length > 0) {
+    res.status(400).json({
+      error: { code: "INVALID_FORMAT", message: "Each excludedOwnerId must be a string or number" },
+    });
+    return;
+  }
+
+  // Apply
+  dashboardConfig.setExcludedOwnerIds(
+    body.excludedOwnerIds.map(String),
+    () => dashboardCache.clear(),
+  );
+
+  logger.info(
+    { count: body.excludedOwnerIds.length },
+    "Excluded owner IDs updated via API",
+  );
+
+  res.json({
+    ...dashboardConfig.getConfig(),
+    cacheCleared: true,
+  });
+});
+
 // ─── Cache management ────────────────────────────────────────
 router.get("/cache/stats", (_req: Request, res: Response) => {
   const stats = dashboardCache.stats();
@@ -272,4 +423,3 @@ router.delete("/cache", (_req: Request, res: Response) => {
 });
 
 export default router;
-

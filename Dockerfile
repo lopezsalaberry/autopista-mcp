@@ -24,6 +24,10 @@ COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nodejs:nodejs /app/package.json ./
 
+# Writable data directory for runtime config (mount as volume for persistence)
+RUN mkdir -p /app/data && chown nodejs:nodejs /app/data
+VOLUME ["/app/data"]
+
 USER nodejs
 
 EXPOSE 3000

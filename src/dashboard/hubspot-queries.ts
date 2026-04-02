@@ -11,7 +11,7 @@
 
 import { config } from "../shared/config.js";
 import { logger } from "../shared/logger.js";
-import { EXCLUDED_OWNER_IDS, MAX_AGE, ALL_CANALES, CANAL_DISPLAY_NAMES } from "./dashboard-router.js";
+import { getExcludedOwnerIds, MAX_AGE, ALL_CANALES, CANAL_DISPLAY_NAMES } from "./dashboard-router.js";
 
 const API = "https://api.hubapi.com";
 
@@ -150,7 +150,7 @@ function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown
     { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
     { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
     { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
-    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: getExcludedOwnerIds() },
   ];
 }
 
@@ -257,7 +257,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
       { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
       { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
       { propertyName: "categoria", operator: "EQ", value: categoria },
-      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: getExcludedOwnerIds() },
     ]);
   }
 
@@ -269,7 +269,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
     { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
     { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
     { propertyName: "categoria", operator: "NOT_HAS_PROPERTY" },
-    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: getExcludedOwnerIds() },
   ]);
 
   const result: CrossDataRow[] = [];
@@ -586,7 +586,7 @@ export async function fetchBreakdown(
       { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
     ];
     if (useOwnerFilter) {
-      f.push({ propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS });
+      f.push({ propertyName: "hubspot_owner_id", operator: "NOT_IN", values: getExcludedOwnerIds() });
     }
     for (const [prop, val] of parentEntries) {
       f.push({ propertyName: prop, operator: "EQ", value: val });
