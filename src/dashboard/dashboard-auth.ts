@@ -115,35 +115,6 @@ function verifyLocalJwt(token: string): JwtPayload | null {
 
 // ─── Keycloak JWT verification (when configured) ────────────
 
-let keycloakJwks: Array<{ kid: string; n: string; e: string; kty: string }> | null = null;
-let keycloakJwksLastFetch = 0;
-const JWKS_CACHE_MS = 60 * 60 * 1000; // 1 hour
-
-async function fetchKeycloakJwks(): Promise<typeof keycloakJwks> {
-  const kcUrl = process.env.KEYCLOAK_URL;
-  const realm = process.env.KEYCLOAK_REALM;
-  if (!kcUrl || !realm) return null;
-
-  const now = Date.now();
-  if (keycloakJwks && now - keycloakJwksLastFetch < JWKS_CACHE_MS) {
-    return keycloakJwks;
-  }
-
-  try {
-    const res = await fetch(
-      `${kcUrl}/realms/${realm}/protocol/openid-connect/certs`,
-    );
-    if (!res.ok) return keycloakJwks; // return cached on error
-    const data = await res.json() as { keys: typeof keycloakJwks };
-    keycloakJwks = data.keys;
-    keycloakJwksLastFetch = now;
-    return keycloakJwks;
-  } catch (err) {
-    logger.warn({ err }, "Failed to fetch Keycloak JWKS");
-    return keycloakJwks; // use cached
-  }
-}
-
 async function verifyKeycloakJwt(token: string): Promise<JwtPayload | null> {
   const kcUrl = process.env.KEYCLOAK_URL;
   const realm = process.env.KEYCLOAK_REALM;

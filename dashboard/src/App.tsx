@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './index.css'
 import { ChatDrawer } from './components/ChatDrawer'
 import { DailyTimeline } from './components/DailyTimeline'
+import { useAuth } from './auth/AuthContext'
+import { LoginPage } from './auth/LoginPage'
 
 interface CrossDataRow {
   categoria: string
@@ -50,8 +52,14 @@ type Page = 'dashboard' | 'settings'
 // ── API ─────────────────────────────────────────────────────
 const API_BASE = '/api/dashboard'
 
+// Token is set by the auth system and injected into every request
+let _authToken: string | null = null
+function setAuthToken(token: string | null) { _authToken = token }
+
 async function fetchApi<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { signal })
+  const headers: Record<string, string> = {}
+  if (_authToken) headers['Authorization'] = `Bearer ${_authToken}`
+  const res = await fetch(`${API_BASE}${path}`, { signal, headers })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body?.error?.message || `API error: ${res.status}`)
@@ -1323,6 +1331,7 @@ function SettingsPage({ settings, onSave, onBack, vigenciasForSettings }: {
 // ── MAIN APP ────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
 export default function App() {
+  const { isAuthenticated, isLoading: authLoading, token, user, logout } = useAuth()
   const [chatOpen, setChatOpen] = useState(false)
   const [page, setPage] = useState<Page>('dashboard')
   const [settings, setSettings] = useState<Settings>(loadSettings)
@@ -1341,18 +1350,26 @@ export default function App() {
   const [ownerTeams, setOwnerTeams] = useState<Record<string, string>>({})
   const [vendedoresExpanded, setVendedoresExpanded] = useState(false)
 
-  // Fetch owner names + teams once on mount
+  // Sync auth token into the API helper
   useEffect(() => {
+    setAuthToken(token)
+  }, [token])
+
+
+  // Fetch owner names + teams once authenticated
+  useEffect(() => {
+    if (!isAuthenticated) return
     fetchApi<{ names: Record<string, string>; teams: Record<string, string> }>('/owners')
       .then(res => {
         setOwnerNames(res.names)
         setOwnerTeams(res.teams)
       })
       .catch(err => console.warn('Failed to load owner names:', err))
-  }, [])
+  }, [isAuthenticated])
 
-  // Load vigencias on mount, then apply per-month overrides
+  // Load vigencias once authenticated, then apply per-month overrides
   useEffect(() => {
+    if (!isAuthenticated) return
     const year = new Date().getFullYear()
     fetchApi<{ vigencias: Vigencia[] }>(`/vigencias?year=${year}`)
       .then(res => {
@@ -1379,7 +1396,7 @@ export default function App() {
         }
       })
       .catch(err => setError(err.message))
-  }, [settings.vigenciaOverrides])
+  }, [isAuthenticated, settings.vigenciaOverrides])
 
   // Client-side cache + abort controller for request cancellation
   const clientCache = useRef(new Map<string, { data: LeadsData; crossData?: CrossDataRow[]; ts: number }>())
@@ -1416,11 +1433,20 @@ export default function App() {
     setError(null)
     setSelectedDate(null) // Reset day selection when fetching new period
     try {
-      const result = await fetchApi<LeadsData>(
-        `/leads?from=${from}&to=${to}`,
-        abortRef.current.signal
-      )
-      clientCache.current.set(key, { data: result, ts: Date.now() })
+      const signal = abortRef.current.signal
+
+      // Fetch leads + cross-data in parallel for instant full render
+      const [result, crossResult] = await Promise.all([
+        fetchApi<LeadsData>(`/leads?from=${from}&to=${to}`, signal),
+        fetchApi<CrossDataRow[]>(`/cross-data?from=${from}&to=${to}`, signal)
+          .catch(err => {
+            if (err instanceof DOMException && err.name === 'AbortError') throw err
+            console.warn('CrossData fetch failed:', err)
+            return [] as CrossDataRow[]
+          }),
+      ])
+
+      clientCache.current.set(key, { data: result, crossData: crossResult, ts: Date.now() })
       // Evict oldest if cache exceeds 20 entries
       if (clientCache.current.size > 20) {
         let oldestKey = '', oldestTs = Infinity
@@ -1430,23 +1456,7 @@ export default function App() {
         if (oldestKey) clientCache.current.delete(oldestKey)
       }
       setData(result)
-
-      // Lazy-fetch cross-data AFTER main data loads (separate rate limit window)
-      // Reset stale crossData before fetching new
-      if (!cached?.crossData) setCrossData([])
-      const signal = abortRef.current?.signal
-      fetchApi<CrossDataRow[]>(`/cross-data?from=${from}&to=${to}`, signal)
-        .then(cd => {
-          if (!signal?.aborted) {
-            setCrossData(cd)
-            const entry = clientCache.current.get(key)
-            if (entry) entry.crossData = cd
-          }
-        })
-        .catch(err => {
-          if (err instanceof DOMException && err.name === 'AbortError') return
-          console.warn('CrossData fetch failed:', err)
-        })
+      setCrossData(crossResult)
     } catch (err) {
       // Silently ignore aborted requests
       if (err instanceof DOMException && err.name === 'AbortError') return
@@ -1490,6 +1500,20 @@ export default function App() {
     saveSettings(s)
   }
 
+  // ── AUTH GATE (after all hooks) ─────────────────────────────
+  if (authLoading) {
+    return (
+      <div className="auth-loading">
+        <div className="spinner" />
+        <div className="auth-loading-text">Verificando sesión...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />
+  }
+
   // ── SETTINGS PAGE ──────────────────────────────────────────
   if (page === 'settings') {
     return (
@@ -1518,6 +1542,7 @@ export default function App() {
             </div>
           )}
           <button className="header-btn" onClick={() => setPage('settings')}>⚙️</button>
+          <button className="header-btn" onClick={logout} title={`Cerrar sesión (${user?.displayName})`}>🚪</button>
         </div>
       </header>
 

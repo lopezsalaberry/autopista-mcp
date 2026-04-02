@@ -12,7 +12,8 @@
  * - GET /api/dashboard/cache/stats
  * - DELETE /api/dashboard/cache (clear cache)
  *
- * Protected by API key via X-Dashboard-Key header.
+ * Protected by JWT authentication (local or Keycloak OIDC).
+ * Auth routes at /api/dashboard/auth/* are public.
  */
 
 import { Router, type Request, type Response, type NextFunction } from "express";
@@ -22,6 +23,7 @@ import { getAllVigencias, getPreviousPeriod, type VigenciaConfig } from "./vigen
 import { dashboardCache } from "./dashboard-cache.js";
 import { DashboardConfig } from "./dashboard-config.js";
 import { fetchLeadsData, fetchBreakdown, fetchCrossData } from "./hubspot-queries.js";
+import { authRouter, dashboardAuth } from "./dashboard-auth.js";
 
 const router = Router();
 
@@ -54,31 +56,11 @@ export const CANAL_DISPLAY_NAMES: Record<string, string> = {
 /** All canal values to query. */
 export const ALL_CANALES = Object.keys(CANAL_DISPLAY_NAMES);
 
-// ─── API Key Middleware ──────────────────────────────────────
-function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
-  const apiKey = process.env.DASHBOARD_API_KEY;
+// ─── Auth Routes (public — no token required) ───────────────
+router.use("/auth", authRouter);
 
-  // If no API key is configured, allow all requests (dev mode)
-  if (!apiKey) {
-    next();
-    return;
-  }
-
-  const providedKey = req.headers["x-dashboard-key"] as string | undefined;
-  if (!providedKey || providedKey !== apiKey) {
-    res.status(401).json({
-      error: {
-        code: "UNAUTHORIZED",
-        message: "Invalid or missing X-Dashboard-Key header",
-        timestamp: new Date().toISOString(),
-      },
-    });
-    return;
-  }
-  next();
-}
-
-router.use(apiKeyAuth);
+// ─── JWT Auth Middleware (protects all routes below) ─────────
+router.use(dashboardAuth as any);
 
 // ─── GET /vigencias ──────────────────────────────────────────
 router.get("/vigencias", (req: Request, res: Response) => {
