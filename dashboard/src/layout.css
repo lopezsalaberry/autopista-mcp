@@ -8,7 +8,7 @@
 .dashboard-header {
   background: linear-gradient(135deg, var(--brand-deep) 0%, var(--brand-primary) 100%);
   color: var(--text-on-dark);
-  padding: 20px 32px;
+  padding: 14px 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -16,6 +16,36 @@
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+.header-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.header-brand-sub {
+  font-size: 0.65rem;
+  font-weight: 400;
+  opacity: 0.6;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.header-brand-sep {
+  opacity: 0.3;
+  font-weight: 300;
+  font-size: 1.1rem;
+}
+
+.header-brand-page {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  opacity: 0.85;
 }
 
 .dashboard-header h1 {
@@ -259,6 +289,20 @@
 .conv-high { background: var(--green-soft); color: #00875a; }
 .conv-mid  { background: var(--amber-soft); color: #b87500; }
 .conv-low  { background: var(--red-soft);   color: #c62828; }
+
+/* ── Source Badge (traffic source column) ──────────── */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--brand-pale);
+  color: var(--brand-primary);
+  white-space: nowrap;
+}
 
 /* ── Horizontal Bar ─────────────────────────────────── */
 .bar-chart {

@@ -22,6 +22,7 @@ import { useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
 
 import { IconSettings, IconLogOut, IconAlertTriangle } from './components/Icons'
+import { MedicusLogo } from './components/MedicusLogo'
 
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { KPICards } from './components/KPICards'
@@ -207,9 +208,9 @@ export default function App() {
     <div className="dashboard">
       {/* Header */}
       <header className="dashboard-header">
-        <div>
-          <h1>Growth Dashboard</h1>
-          <div className="subtitle">Medicus — Leads & Conversión</div>
+        <div className="header-brand">
+          <MedicusLogo height={22} />
+          <span className="header-brand-sub">Growth</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {data && !loading && (

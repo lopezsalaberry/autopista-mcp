@@ -17,6 +17,7 @@ import {
   IconSettings, IconTarget, IconCalendarRange, IconShield,
   IconArrowLeft, IconReset, IconCheck, IconPlus,
 } from './Icons'
+import { MedicusLogo } from './MedicusLogo'
 
 type SettingsTab = 'objetivos' | 'vigencias' | 'exclusiones'
 
@@ -250,11 +251,9 @@ export function SettingsPage({ settings, onSave, onBack, vigenciasForSettings, s
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <IconSettings size={22} /> Configuración
-          </h1>
-          <div className="subtitle">Objetivos y parámetros del dashboard</div>
+        <div className="header-brand">
+          <MedicusLogo height={22} />
+          <span className="header-brand-sub">Growth</span>
         </div>
         <button className="header-btn" onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <IconArrowLeft size={14} /> Dashboard
@@ -262,7 +261,7 @@ export function SettingsPage({ settings, onSave, onBack, vigenciasForSettings, s
       </header>
 
       <div className="dashboard-body" style={{ maxWidth: '780px' }}>
-        {/* Tab Bar */}
+        <h2 className="page-title"><IconSettings size={20} /> Configuración</h2>
         <div className="settings-tabs">
           <button
             className={`settings-tab ${activeTab === 'objetivos' ? 'active' : ''}`}

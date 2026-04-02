@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from './AuthContext'
+import { MedicusLogo } from '../components/MedicusLogo'
 
 const REMEMBER_KEY = 'medicus-dashboard-remember'
 
@@ -44,14 +45,9 @@ export function LoginPage() {
         {/* Header gradient bar */}
         <div className="login-header">
           <div className="login-logo">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect width="32" height="32" rx="8" fill="white" fillOpacity="0.15"/>
-              <path d="M8 16L14 10L20 16L14 22Z" fill="white" fillOpacity="0.9"/>
-              <path d="M14 16L20 10L26 16L20 22Z" fill="white" fillOpacity="0.6"/>
-            </svg>
+            <MedicusLogo height={32} />
+            <span className="login-logo-sub">Growth</span>
           </div>
-          <h1>Growth Dashboard</h1>
-          <p>Medicus — Leads & Conversión</p>
         </div>
 
         <div className="login-body">

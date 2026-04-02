@@ -26,8 +26,19 @@
 }
 
 .login-logo {
-  margin-bottom: 16px;
-  display: inline-flex;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-logo-sub {
+  font-size: 0.82rem;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
 }
 
 .login-header h1 {
