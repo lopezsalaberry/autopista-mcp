@@ -22,7 +22,7 @@ import { config } from "../shared/config.js";
 import { getAllVigencias, getPreviousPeriod, type VigenciaConfig } from "./vigencia.js";
 import { dashboardCache } from "./dashboard-cache.js";
 import { DashboardConfig } from "./dashboard-config.js";
-import { fetchLeadsData, fetchBreakdown, fetchCrossData } from "./hubspot-queries.js";
+import { fetchLeadsData, fetchBreakdown, fetchCrossData, fetchVentaOnline } from "./hubspot-queries.js";
 import { authRouter, dashboardAuth } from "./dashboard-auth.js";
 
 const router = Router();
@@ -140,6 +140,16 @@ router.get("/leads", async (req: Request, res: Response) => {
     return;
   }
 
+  // Guard against excessively large date ranges (YTD max ~400 days)
+  const MAX_RANGE_DAYS = 400;
+  const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000;
+  if (rangeDays > MAX_RANGE_DAYS || rangeDays < 0) {
+    res.status(400).json({
+      error: { code: "RANGE_TOO_LARGE", message: `Date range cannot exceed ${MAX_RANGE_DAYS} days` },
+    });
+    return;
+  }
+
   // Check cache (include previous period in key when explicitly provided)
   const cacheKey = dashboardCache.key("leads", {
     from, to,
@@ -241,6 +251,16 @@ router.get("/cross-data", async (req: Request, res: Response) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
     res.status(400).json({
       error: { code: "INVALID_DATE_FORMAT", message: "Dates must be in YYYY-MM-DD format" },
+    });
+    return;
+  }
+
+  // Guard against excessively large date ranges
+  const MAX_RANGE_DAYS = 400;
+  const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000;
+  if (rangeDays > MAX_RANGE_DAYS || rangeDays < 0) {
+    res.status(400).json({
+      error: { code: "RANGE_TOO_LARGE", message: `Date range cannot exceed ${MAX_RANGE_DAYS} days` },
     });
     return;
   }
@@ -416,6 +436,58 @@ router.put("/config/excluded-owners", (req: Request, res: Response) => {
     ...dashboardConfig.getConfig(),
     cacheCleared: true,
   });
+});
+
+// ─── GET /venta-online ───────────────────────────────────────
+router.get("/venta-online", async (req: Request, res: Response) => {
+  const { from, to } = req.query as { from?: string; to?: string };
+  if (!from || !to) {
+    res.status(400).json({
+      error: { code: "INVALID_PARAMS", message: "from and to are required (YYYY-MM-DD)", timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  // Validate date format (YYYY-MM-DD)
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!DATE_RE.test(from) || !DATE_RE.test(to)) {
+    res.status(400).json({
+      error: { code: "INVALID_DATE_FORMAT", message: "Dates must be YYYY-MM-DD", timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  // Guard against excessively large date ranges
+  const MAX_RANGE_DAYS = 400;
+  const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000;
+  if (rangeDays > MAX_RANGE_DAYS || rangeDays < 0) {
+    res.status(400).json({
+      error: { code: "RANGE_TOO_LARGE", message: `Date range cannot exceed ${MAX_RANGE_DAYS} days`, timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  const cacheKey = `venta-online:${from}:${to}`;
+  const cached = dashboardCache.get<{ total: number; period: { from: string; to: string } }>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
+  try {
+    const data = await fetchVentaOnline(from, to);
+    dashboardCache.set(cacheKey, data, computeCacheTTL(from, to));
+    res.json(data);
+  } catch (err: unknown) {
+    logger.error({ err, from, to }, "Error fetching venta online");
+    res.status(500).json({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: err instanceof Error ? err.message : "Unknown error",
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
 });
 
 // ─── Cache management ────────────────────────────────────────

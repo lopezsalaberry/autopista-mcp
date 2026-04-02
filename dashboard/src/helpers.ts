@@ -3,7 +3,7 @@
  * No React imports — framework-agnostic helpers only.
  */
 
-import type { FilterMode, GoalDistribution, LeadsData, Settings, SortState, VigenciaOverride } from './types'
+import type { FilterMode, GoalDistribution, LeadsData, Settings, SortState, Vigencia, VigenciaOverride } from './types'
 
 // ── Formatting ──────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ export function isoDate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-export function getDateRange(mode: FilterMode): { from: string; to: string } | null {
+export function getDateRange(mode: FilterMode): { from: string; to: string; previousFrom?: string; previousTo?: string } | null {
   const now = new Date()
   const today = isoDate(now)
 
@@ -47,7 +47,84 @@ export function getDateRange(mode: FilterMode): { from: string; to: string } | n
       return { from: isoDate(first), to: today }
     }
     default:
-      return null // vigencia and custom handled separately
+      return null // vigencia, qtd, ytd, custom handled separately
+  }
+}
+
+/**
+ * Compute vigencia-based QTD range.
+ * Quarters map to vigencia months: Q1=1-3, Q2=4-6, Q3=7-9, Q4=10-12.
+ * Uses vigencia boundaries (custom from/to) rather than calendar dates.
+ * Previous period = full previous quarter's vigencias.
+ */
+export function getVigenciaQuarterRange(
+  vigencias: Vigencia[],
+): { from: string; to: string; previousFrom?: string; previousTo?: string } | null {
+  if (!vigencias.length) return null
+  const today = isoDate(new Date())
+
+  // Find the active or most recent vigencia to determine current quarter
+  const activeVig = vigencias.find(v => v.from <= today && today <= v.to)
+    || vigencias.filter(v => v.from <= today).sort((a, b) => b.fromMs - a.fromMs)[0]
+  if (!activeVig) return null
+
+  const currentQ = Math.ceil(activeVig.month / 3) // 1,2,3,4
+  const qStartMonth = (currentQ - 1) * 3 + 1     // 1,4,7,10
+  const qEndMonth = currentQ * 3                   // 3,6,9,12
+
+  // Current quarter vigencias
+  const qVigs = vigencias
+    .filter(v => v.month >= qStartMonth && v.month <= qEndMonth)
+    .sort((a, b) => a.fromMs - b.fromMs)
+  if (!qVigs.length) return null
+
+  const from = qVigs[0].from
+  const lastTo = qVigs[qVigs.length - 1].to
+  const to = today < lastTo ? today : lastTo
+
+  // Previous quarter vigencias (e.g., Q2→Q1)
+  const prevQStart = qStartMonth - 3
+  const prevQEnd = qStartMonth - 1
+  const prevVigs = vigencias
+    .filter(v => v.month >= prevQStart && v.month <= prevQEnd)
+    .sort((a, b) => a.fromMs - b.fromMs)
+
+  if (prevVigs.length) {
+    return {
+      from, to,
+      previousFrom: prevVigs[0].from,
+      previousTo: prevVigs[prevVigs.length - 1].to,
+    }
+  }
+  return { from, to }
+}
+
+/**
+ * Compute vigencia-based YTD range.
+ * Uses all vigencias for the year, from first vigencia's start to today.
+ * Previous period = same vigencias in previous year (calendar fallback).
+ */
+export function getVigenciaYearRange(
+  vigencias: Vigencia[],
+): { from: string; to: string; previousFrom?: string; previousTo?: string } | null {
+  if (!vigencias.length) return null
+  const today = isoDate(new Date())
+
+  const sorted = [...vigencias].sort((a, b) => a.fromMs - b.fromMs)
+  const from = sorted[0].from
+  const lastVig = sorted[sorted.length - 1]
+  const to = today < lastVig.to ? today : lastVig.to
+
+  // Previous year fallback: shift the entire range back by ~365 days
+  const fromDate = new Date(`${from}T12:00:00Z`)
+  const toDate = new Date(`${to}T12:00:00Z`)
+  fromDate.setUTCFullYear(fromDate.getUTCFullYear() - 1)
+  toDate.setUTCFullYear(toDate.getUTCFullYear() - 1)
+
+  return {
+    from, to,
+    previousFrom: isoDate(fromDate),
+    previousTo: isoDate(toDate),
   }
 }
 
@@ -224,7 +301,8 @@ export function loadSettings(): Settings {
 export function saveSettings(s: Settings): void {
   const json = JSON.stringify(s)
   if (json.length > MAX_SETTINGS_BYTES) {
-    console.warn(`Settings size (${json.length}B) exceeds ${MAX_SETTINGS_BYTES}B limit`)
+    // Silently refuse to persist oversized settings — caller should prevent this
+    return
   }
   localStorage.setItem(SETTINGS_KEY, json)
 }
@@ -235,6 +313,7 @@ export function saveSettings(s: Settings): void {
 export function vigenciaKey(v: { year: number; month: number }): string {
   return `${v.year}-${String(v.month).padStart(2, '0')}`
 }
+
 
 // ── Year Validation ─────────────────────────────────────────
 
@@ -264,6 +343,27 @@ export function resolveEffectiveGoal(settings: Settings, vKey: string): {
   }
 }
 
+/**
+ * Aggregate goals for all vigencias overlapping a date range.
+ * Used for QTD/YTD to sum the individual vigencia goals.
+ * Returns null if no vigencias overlap.
+ */
+export function resolveAggregateGoal(
+  settings: Settings,
+  vigencias: Vigencia[],
+  from: string,
+  to: string,
+): number | null {
+  const overlapping = vigencias.filter(v => v.from <= to && v.to >= from)
+  if (!overlapping.length) return null
+
+  return overlapping.reduce((sum, v) => {
+    const vKey = vigenciaKey({ year: v.year, month: v.month })
+    const resolved = resolveEffectiveGoal(settings, vKey)
+    return sum + resolved.goal
+  }, 0)
+}
+
 // ── Sortable Table Helpers ──────────────────────────────────
 
 export function toggleSort<K extends string>(prev: SortState<K> | null, key: K): SortState<K> {
@@ -287,7 +387,7 @@ export function applySortFn<T>(items: T[], sort: SortState | null): T[] {
 // ── Goal Progress ───────────────────────────────────────────
 
 /** Count calendar days between two ISO date strings, inclusive of both endpoints. */
-function daysBetweenInclusive(from: string, to: string): number {
+export function daysBetweenInclusive(from: string, to: string): number {
   const [fy, fm, fd] = from.split('-').map(Number)
   const [ty, tm, td] = to.split('-').map(Number)
   const msFrom = Date.UTC(fy, fm - 1, fd)
@@ -299,15 +399,70 @@ function daysBetweenInclusive(from: string, to: string): number {
  * Compute goal progress. Receives an optional resolved goal (from resolveEffectiveGoal).
  * Falls back to settings.goalLeads if effectiveGoal is not provided.
  *
- * Uses timezone-safe, inclusive day counting so the prorated goal is
- * deterministic regardless of hour-of-day or browser timezone.
+ * For QTD/YTD with vigencias, proration is **vigencia-aware**:
+ * - Completed vigencias → full goal
+ * - Active vigencia → prorated by elapsed days within that vigencia
+ * - Future vigencias → not counted
+ *
+ * For single-vigencia mode, uses standard elapsed-day proration.
  */
 export function computeGoalProgress(
   data: LeadsData,
   settings: Settings,
   effectiveGoal?: number,
+  vigencias?: Vigencia[],
 ) {
   const today = isoDate(new Date())
+  const goal = effectiveGoal ?? settings.goalLeads
+
+  // ── Vigencia-aware proration (QTD/YTD with multiple vigencias) ──
+  if (vigencias && vigencias.length > 1) {
+    // Find which vigencias overlap the data period
+    const periodVigs = vigencias
+      .filter(v => v.from <= data.period.to && v.to >= data.period.from)
+      .sort((a, b) => a.fromMs - b.fromMs)
+
+    if (periodVigs.length > 0) {
+      let proratedGoal = 0
+      const totalDays = daysBetweenInclusive(periodVigs[0].from, periodVigs[periodVigs.length - 1].to)
+      let elapsedDays = 0
+
+      for (const v of periodVigs) {
+        const vKey = vigenciaKey({ year: v.year, month: v.month })
+        const vGoal = resolveEffectiveGoal(settings, vKey).goal
+        const vigDays = daysBetweenInclusive(v.from, v.to)
+
+        if (v.to < today) {
+          // Completed vigencia — full goal
+          proratedGoal += vGoal
+          elapsedDays += vigDays
+        } else if (v.from <= today) {
+          // Active vigencia — prorate by elapsed days within it
+          const elapsedInVig = daysBetweenInclusive(v.from, today)
+          proratedGoal += Math.round(vGoal * (elapsedInVig / vigDays))
+          elapsedDays += elapsedInVig
+        }
+        // Future vigencias: skip (not started yet)
+      }
+
+      const pctElapsed = totalDays > 0 ? elapsedDays / totalDays : 0
+      // Safety: prorated goal must never exceed the total goal for the period
+      const clampedGoal = Math.min(proratedGoal, goal)
+      const leadsPct = clampedGoal > 0 ? (data.total / clampedGoal) * 100 : 0
+
+      return {
+        totalDays,
+        elapsed: elapsedDays,
+        pctElapsed,
+        proratedGoal: clampedGoal,
+        leadsPct: Math.min(leadsPct, 200),
+        onTrack: data.total >= clampedGoal,
+        fullGoal: goal,
+      }
+    }
+  }
+
+  // ── Single vigencia fallback (standard elapsed-day proration) ──
   const totalDays = daysBetweenInclusive(data.period.from, data.period.to)
   const elapsed = Math.min(
     totalDays,
@@ -315,10 +470,9 @@ export function computeGoalProgress(
   )
   const pctElapsed = elapsed / totalDays
 
-  const goal = effectiveGoal ?? settings.goalLeads
-
-  // Pro-rate goal to elapsed time
-  const proratedGoal = Math.round(goal * pctElapsed)
+  const rawProrated = Math.round(goal * pctElapsed)
+  // Safety: prorated goal must never exceed the total goal
+  const proratedGoal = Math.min(rawProrated, goal)
   const leadsPct = proratedGoal > 0 ? (data.total / proratedGoal) * 100 : 0
 
   return {
@@ -383,11 +537,13 @@ export const CAT_COLORS: Record<string, string> = {
 }
 
 export const FILTER_PRESETS: { mode: FilterMode; label: string }[] = [
-  { mode: 'hoy', label: 'Hoy' },
-  { mode: '7d', label: '7 días' },
-  { mode: '30d', label: '30 días' },
-  { mode: 'mtd', label: 'Mes' },
   { mode: 'vigencia', label: 'Vigencia' },
+  { mode: '30d', label: '30 días' },
+  { mode: '7d', label: '7 días' },
+  { mode: 'mtd', label: 'Mes' },
+  { mode: 'qtd', label: 'QTD' },
+  { mode: 'ytd', label: 'YTD' },
+  { mode: 'hoy', label: 'Hoy' },
   { mode: 'custom', label: 'Custom' },
 ]
 

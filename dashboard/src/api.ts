@@ -23,12 +23,26 @@ export function setAuthToken(token: string | null) {
 export async function fetchApi<T>(path: string, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {}
   if (_authToken) headers['Authorization'] = `Bearer ${_authToken}`
-  const res = await fetch(`${API_BASE}${path}`, { signal, headers })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(body?.error?.message || `API error: ${res.status}`)
+
+  // 120s allows YTD cross-data to fully paginate on first load;
+  // server-side cache (1h TTL) ensures this cost is paid only once.
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new Error('signal timed out')), 120_000)
+  if (signal) {
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true })
   }
-  return res.json()
+  const combinedSignal = controller.signal
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { signal: combinedSignal, headers })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body?.error?.message || `API error: ${res.status}`)
+    }
+    return res.json()
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 /**

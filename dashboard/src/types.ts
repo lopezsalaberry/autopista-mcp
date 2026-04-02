@@ -62,7 +62,7 @@ export interface Settings {
 
 // ── UI State Types ──────────────────────────────────────────
 
-export type FilterMode = 'hoy' | '7d' | '30d' | 'mtd' | 'vigencia' | 'custom'
+export type FilterMode = 'hoy' | '7d' | '30d' | 'mtd' | 'qtd' | 'ytd' | 'vigencia' | 'custom'
 export type Page = 'dashboard' | 'settings'
 
 export type SortDir = 'asc' | 'desc'

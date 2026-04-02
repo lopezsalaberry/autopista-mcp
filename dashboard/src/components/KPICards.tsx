@@ -1,9 +1,11 @@
 /**
  * KPICards — Top-level KPI metric cards with delta comparison and goal progress.
+ * Includes "Venta Online" card: deals in "Alta de Socio - Adm de Ventas"
+ * owned by Promotor Directo, fetched from backend deal search.
  */
 
 import { useMemo } from 'react'
-import type { CrossDataRow, LeadsData, Settings } from '../types'
+import type { CrossDataRow, LeadsData, Settings, Vigencia } from '../types'
 import { fmt, fmtPct, computeGoalProgress, formatDateShort } from '../helpers'
 
 interface Props {
@@ -12,11 +14,13 @@ interface Props {
   selectedDate: string | null
   crossData: CrossDataRow[]
   effectiveGoal?: number
+  ventaOnline: number
+  vigencias?: Vigencia[]
 }
 
-export function KPICards({ data, settings, selectedDate, crossData, effectiveGoal }: Props) {
+export function KPICards({ data, settings, selectedDate, crossData, effectiveGoal, ventaOnline, vigencias }: Props) {
   const prev = data.previousPeriod
-  const goal = computeGoalProgress(data, settings, effectiveGoal)
+  const goal = computeGoalProgress(data, settings, effectiveGoal, vigencias)
 
   // When a day is selected, compute KPIs from crossData for that day
   const dayData = useMemo(() => {
@@ -28,7 +32,6 @@ export function KPICards({ data, settings, selectedDate, crossData, effectiveGoa
     return { total, converted, conversionRate }
   }, [selectedDate, crossData])
 
-
   const displayTotal = dayData?.total ?? data.total
   const displayConverted = dayData?.converted ?? data.converted
   const displayRate = dayData?.conversionRate ?? data.conversionRate
@@ -38,7 +41,10 @@ export function KPICards({ data, settings, selectedDate, crossData, effectiveGoa
     <div className="kpi-grid">
       {/* Total Leads */}
       <div className="kpi-card">
-        <div className="kpi-label">Total Leads{selectedDate ? ` — ${formatDateShort(selectedDate)}` : ''}</div>
+        <div className="kpi-label">
+          Total Leads
+          {selectedDate ? ` — ${formatDateShort(selectedDate)}` : ''}
+        </div>
         <div className="kpi-value">{fmt(displayTotal)}</div>
         {showDeltas && prev && (
           <div className={`kpi-delta ${prev.deltaTotal >= 0 ? 'positive' : 'negative'}`}>
@@ -46,7 +52,7 @@ export function KPICards({ data, settings, selectedDate, crossData, effectiveGoa
             {Math.abs(prev.deltaTotal).toFixed(1)}% vs anterior
           </div>
         )}
-        {!selectedDate && settings.goalLeads > 0 && (
+        {!selectedDate && effectiveGoal != null && effectiveGoal > 0 && (
           <div className="kpi-goal">
             <div className="kpi-goal-track">
               <div
@@ -102,6 +108,15 @@ export function KPICards({ data, settings, selectedDate, crossData, effectiveGoa
           </div>
         </div>
       )}
+
+      {/* Venta Online — deals in Alta de Socio owned by Promotor Directo (rightmost) */}
+      <div className="kpi-card kpi-venta-online">
+        <div className="kpi-label">Venta Online</div>
+        <div className="kpi-value">{fmt(ventaOnline)}</div>
+        <div className="kpi-delta" style={{ background: 'var(--green-soft)', color: 'var(--green)' }}>
+          Alta de Socio · Promotor Directo
+        </div>
+      </div>
     </div>
   )
 }

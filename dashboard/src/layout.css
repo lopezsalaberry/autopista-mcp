@@ -181,6 +181,11 @@
   font-size: 0.6rem;
 }
 
+/* ── Venta Online KPI Card ────────────────────────────── */
+.kpi-card.kpi-venta-online::before {
+  background: linear-gradient(90deg, var(--green), #00c48c);
+}
+
 /* ── Section Titles (subtle label, not headline) ─── */
 .section-title {
   font-size: 0.78rem;
@@ -194,6 +199,15 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.section-subtitle {
+  font-weight: 400;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+  text-transform: none;
+  margin-left: 4px;
 }
 
 /* ── Cards / Panels ─────────────────────────────────── */

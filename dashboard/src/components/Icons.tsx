@@ -53,6 +53,22 @@ export function IconArrowLeft(p?: IconProps) {
   )
 }
 
+export function IconChevronLeft(p?: IconProps) {
+  return (
+    <svg {...defaults(p)}>
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  )
+}
+
+export function IconChevronRight(p?: IconProps) {
+  return (
+    <svg {...defaults(p)}>
+      <polyline points="9 6 15 12 9 18" />
+    </svg>
+  )
+}
+
 export function IconX(p?: IconProps) {
   return (
     <svg {...defaults(p)}>

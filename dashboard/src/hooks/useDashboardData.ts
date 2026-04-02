@@ -1,8 +1,8 @@
 /**
  * useDashboardData — Data fetching hook for the Growth Dashboard.
  *
- * Manages: leads data, cross-data, loading/error state, client-side cache,
- * request cancellation via AbortController, and day selection.
+ * Manages: leads data, cross-data, venta online KPI, loading/error state,
+ * client-side cache, request cancellation via AbortController, and day selection.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react'
@@ -13,6 +13,7 @@ import { isoDate } from '../helpers'
 interface DashboardDataState {
   data: LeadsData | null
   crossData: CrossDataRow[]
+  ventaOnline: number
   loading: boolean
   error: string | null
   selectedDate: string | null
@@ -23,12 +24,13 @@ interface DashboardDataState {
 export function useDashboardData(): DashboardDataState {
   const [data, setData] = useState<LeadsData | null>(null)
   const [crossData, setCrossData] = useState<CrossDataRow[]>([])
+  const [ventaOnline, setVentaOnline] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   // Client-side cache + abort controller for request cancellation
-  const clientCache = useRef(new Map<string, { data: LeadsData; crossData?: CrossDataRow[]; ts: number }>())
+  const clientCache = useRef(new Map<string, { data: LeadsData; crossData?: CrossDataRow[]; ventaOnline?: number; ts: number }>())
   const abortRef = useRef<AbortController | null>(null)
 
   // Cleanup on unmount — cancel in-flight request
@@ -41,7 +43,7 @@ export function useDashboardData(): DashboardDataState {
     abortRef.current?.abort()
     abortRef.current = new AbortController()
 
-    const key = `${from}|${to}`
+    const key = `${from}|${to}|${previousFrom ?? ''}|${previousTo ?? ''}`
     const cached = clientCache.current.get(key)
     const today = isoDate(new Date())
     const isHistorical = to < today
@@ -51,6 +53,7 @@ export function useDashboardData(): DashboardDataState {
     if (cached && Date.now() - cached.ts < STALE_MS) {
       setData(cached.data)
       setCrossData(cached.crossData || [])
+      setVentaOnline(cached.ventaOnline ?? 0)
       setLoading(false)
       setError(null)
       return
@@ -60,7 +63,12 @@ export function useDashboardData(): DashboardDataState {
     if (cached) {
       setData(cached.data)
       setCrossData(cached.crossData || [])
+      setVentaOnline(cached.ventaOnline ?? 0)
     } else {
+      // Clear previous period's data to avoid showing misleading stale data
+      setData(null)
+      setCrossData([])
+      setVentaOnline(0)
       setLoading(true)
     }
 
@@ -75,18 +83,25 @@ export function useDashboardData(): DashboardDataState {
         leadsUrl += `&previousFrom=${previousFrom}&previousTo=${previousTo}`
       }
 
-      // Fetch leads + cross-data in parallel for instant full render
-      const [result, crossResult] = await Promise.all([
+      // Fetch leads + cross-data + venta-online in parallel for instant full render
+      const [result, crossResult, ventaResult] = await Promise.all([
         fetchApi<LeadsData>(leadsUrl, signal),
         fetchApi<CrossDataRow[]>(`/cross-data?from=${from}&to=${to}`, signal)
           .catch((err: unknown) => {
             if (err instanceof DOMException && err.name === 'AbortError') throw err
-            console.warn('CrossData fetch failed:', err)
+            // CrossData failure is non-critical — leads data still renders, charts degrade gracefully
             return [] as CrossDataRow[]
+          }),
+        fetchApi<{ total: number }>(`/venta-online?from=${from}&to=${to}`, signal)
+          .catch((err: unknown) => {
+            if (err instanceof DOMException && err.name === 'AbortError') throw err
+            // Venta Online failure is non-critical
+            return { total: 0 }
           }),
       ])
 
-      clientCache.current.set(key, { data: result, crossData: crossResult, ts: Date.now() })
+      const voTotal = ventaResult.total
+      clientCache.current.set(key, { data: result, crossData: crossResult, ventaOnline: voTotal, ts: Date.now() })
       // Evict oldest if cache exceeds 20 entries
       if (clientCache.current.size > 20) {
         let oldestKey = '', oldestTs = Infinity
@@ -97,6 +112,7 @@ export function useDashboardData(): DashboardDataState {
       }
       setData(result)
       setCrossData(crossResult)
+      setVentaOnline(voTotal)
     } catch (err: unknown) {
       // Silently ignore aborted requests
       if (err instanceof DOMException && err.name === 'AbortError') return
@@ -109,5 +125,5 @@ export function useDashboardData(): DashboardDataState {
     }
   }, [])
 
-  return { data, crossData, loading, error, selectedDate, setSelectedDate, fetchData }
+  return { data, crossData, ventaOnline, loading, error, selectedDate, setSelectedDate, fetchData }
 }

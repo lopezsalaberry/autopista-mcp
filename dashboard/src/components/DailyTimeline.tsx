@@ -1,5 +1,9 @@
 /**
- * DailyTimeline — Interactive line chart showing daily lead evolution.
+ * DailyTimeline — Interactive chart showing lead evolution.
+ *
+ * Two modes:
+ * - **Daily** (default): Line chart with daily points for single vigencia / short periods
+ * - **Vigencia**: Stacked bar chart aggregated by vigencia for QTD/YTD periods
  *
  * Architecture decisions:
  * - Uses Recharts (SVG-based) for React-native integration + future Brush support
@@ -21,7 +25,7 @@ import {
   Legend,
 } from 'recharts'
 import { IconTrendingUp } from './Icons'
-import type { CrossDataRow } from '../types'
+import type { CrossDataRow, FilterMode, Vigencia } from '../types'
 
 interface DayPoint {
   date: string       // YYYY-MM-DD
@@ -37,6 +41,17 @@ interface DayPoint {
 /** Numeric-only keys used for category aggregation */
 type DayPointNumericKey = 'total' | 'pago' | 'organico' | 'outbound' | 'sinClasificar' | 'converted'
 
+/** Vigencia-level aggregated point for QTD/YTD bar chart */
+interface VigenciaPoint {
+  label: string        // "Enero", "Febrero", ...
+  total: number
+  pago: number
+  organico: number
+  outbound: number
+  sinClasificar: number
+  converted: number
+}
+
 interface DailyTimelineProps {
   crossData: CrossDataRow[]
   from: string        // YYYY-MM-DD
@@ -44,6 +59,8 @@ interface DailyTimelineProps {
   selectedDate: string | null
   onSelectDate: (date: string | null) => void
   selectedVendedor?: string | null
+  filterMode?: FilterMode
+  vigencias?: Vigencia[]
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -84,7 +101,7 @@ const CATEGORY_MAP: Record<string, DayPointNumericKey> = {
 
 interface SeriesConfig {
   key: string
-  dataKey: keyof DayPoint
+  dataKey: DayPointNumericKey
   name: string
   color: string
   isPrimary?: boolean     // thicker, solid line
@@ -104,7 +121,7 @@ const ALL_SERIES: SeriesConfig[] = [
 
 interface CustomTooltipProps {
   active?: boolean
-  payload?: Array<{ payload: DayPoint }>
+  payload?: Array<{ payload: DayPoint | VigenciaPoint }>
   visibleSeries?: Set<string>
 }
 
@@ -118,7 +135,7 @@ function CustomTooltip({ active, payload, visibleSeries }: CustomTooltipProps) {
 
   return (
     <div className="timeline-tooltip">
-      <div className="timeline-tooltip-title">{formatShortDate(point.date)}</div>
+      <div className="timeline-tooltip-title">{'date' in point ? formatShortDate(point.date) : point.label}</div>
       {ALL_SERIES.filter(s => !visible || visible.has(s.key)).map((s, i) => (
         <div key={s.key}>
           {i === 1 && <div className="timeline-tooltip-divider" />}
@@ -143,6 +160,8 @@ export function DailyTimeline({
   selectedDate,
   onSelectDate,
   selectedVendedor,
+  filterMode,
+  vigencias = [],
 }: DailyTimelineProps) {
 
   // Pre-filter crossData by vendedor if selected
@@ -226,7 +245,68 @@ export function DailyTimeline({
     })
   }, [crossData, from, to])
 
-  // Calculate tick interval based on date range
+  // Determine if we should show vigencia-level chart (QTD/YTD with vigencias available)
+  const isVigenciaMode = (filterMode === 'qtd' || filterMode === 'ytd') && vigencias.length > 1
+
+  // Aggregate crossData by vigencia period for QTD/YTD chart
+  const vigenciaData = useMemo((): VigenciaPoint[] => {
+    if (!isVigenciaMode || !crossData.length) return []
+
+    const today = new Date().toISOString().slice(0, 10)
+
+    // Filter vigencias by membership in the period, not by date overlap
+    let periodVigs: typeof vigencias
+
+    if (filterMode === 'qtd') {
+      // QTD: filter by quarter month membership
+      // Find active vigencia to determine current quarter
+      const activeVig = vigencias.find(v => v.from <= today && today <= v.to)
+        || vigencias.filter(v => v.from <= today).sort((a, b) => b.fromMs - a.fromMs)[0]
+      if (!activeVig) return []
+
+      const currentQ = Math.ceil(activeVig.month / 3)
+      const qStartMonth = (currentQ - 1) * 3 + 1
+      const qEndMonth = currentQ * 3
+
+      // Only vigencias whose MONTH is in this quarter AND have started
+      periodVigs = vigencias
+        .filter(v => v.month >= qStartMonth && v.month <= qEndMonth && v.from <= today)
+        .sort((a, b) => a.month - b.month)
+    } else {
+      // YTD: all vigencias that have started
+      periodVigs = vigencias
+        .filter(v => v.from <= today)
+        .sort((a, b) => a.month - b.month)
+    }
+
+    if (!periodVigs.length) return []
+
+    return periodVigs.map(v => {
+      const point: VigenciaPoint = {
+        label: v.name.replace(/\s*\d{4}$/, ''), // "Enero 2026" → "Enero"
+        total: 0,
+        pago: 0,
+        organico: 0,
+        outbound: 0,
+        sinClasificar: 0,
+        converted: 0,
+      }
+
+      // Aggregate all crossData rows that fall within this vigencia
+      for (const row of crossData) {
+        if (!row.date || row.date === 'unknown') continue
+        if (row.date >= v.from && row.date <= v.to) {
+          const catKey = CATEGORY_MAP[row.categoria] || 'sinClasificar'
+          point.total += row.leads
+          point.converted += row.converted
+          point[catKey] = (point[catKey] || 0) + row.leads
+        }
+      }
+
+      return point
+    })
+  }, [isVigenciaMode, crossData, vigencias, filterMode])
+
   const tickInterval = useMemo(() => {
     const len = timelineData.length
     if (len <= 10) return 0
@@ -270,15 +350,16 @@ export function DailyTimeline({
     )
   }, [hiddenSeries, toggleSeries])
 
-  // Don't render for periods ≤ 2 days
-  if (timelineData.length <= 2) return null
+  // Don't render for periods ≤ 2 days (unless vigencia mode)
+  if (!isVigenciaMode && timelineData.length <= 2) return null
 
   // If crossData is still loading, show skeleton
   if (!crossData.length) {
     return (
       <div className="panel timeline-panel">
         <div className="section-title">
-          <span className="section-icon"><IconTrendingUp /></span> Evolución Diaria
+          <span className="section-icon"><IconTrendingUp /></span>
+          {isVigenciaMode ? 'Evolución por Vigencia' : 'Evolución Diaria'}
         </div>
         <div className="timeline-skeleton">
           <div className="timeline-skeleton-bar" />
@@ -287,6 +368,63 @@ export function DailyTimeline({
     )
   }
 
+  // ── Vigencia line chart (QTD/YTD) ─────────────────────────
+  if (isVigenciaMode && vigenciaData.length > 0) {
+    return (
+      <div className="panel timeline-panel">
+        <div className="section-title">
+          <span className="section-icon"><IconTrendingUp /></span>
+          Evolución por Vigencia
+          <span className="section-subtitle">
+            {filterMode === 'qtd' ? 'Quarter to Date' : 'Year to Date'}
+          </span>
+        </div>
+
+        <div className="timeline-chart-container">
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart
+              data={vigenciaData}
+              margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.5} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 12, fill: 'var(--text-muted)' }}
+                axisLine={{ stroke: 'var(--border)' }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                axisLine={false}
+                tickLine={false}
+                width={50}
+                tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)}
+              />
+              <Tooltip content={<CustomTooltip visibleSeries={visibleSeries} />} />
+              <Legend content={renderLegend} />
+
+              {/* Same series as daily view for visual consistency */}
+              {ALL_SERIES.filter(s => !hiddenSeries.has(s.key)).map(s => (
+                <Line
+                  key={s.key}
+                  type="monotone"
+                  dataKey={s.dataKey}
+                  name={s.name}
+                  stroke={s.color}
+                  strokeWidth={s.isPrimary ? 2.5 : 1.5}
+                  strokeDasharray={s.isPrimary ? undefined : '4 2'}
+                  dot={{ r: 4, stroke: s.color, strokeWidth: 2, fill: 'white' }}
+                  activeDot={{ r: 6, stroke: s.color, strokeWidth: 2, fill: 'white' }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Daily line chart (default) ────────────────────────────
   return (
     <div className="panel timeline-panel">
       <div className="section-title">

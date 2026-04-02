@@ -15,7 +15,7 @@ import './index.css'
 import type { FilterMode, Page, Settings, Vigencia } from './types'
 import { fetchApi } from './api'
 import { setAuthToken } from './api'
-import { getDateRange, loadSettings, saveSettings, formatDateShort, vigenciaKey, resolveEffectiveGoal, FILTER_PRESETS } from './helpers'
+import { getDateRange, getVigenciaQuarterRange, getVigenciaYearRange, loadSettings, saveSettings, formatDateShort, vigenciaKey, resolveEffectiveGoal, resolveAggregateGoal, FILTER_PRESETS } from './helpers'
 import { useDashboardData } from './hooks/useDashboardData'
 
 import { useAuth } from './auth/AuthContext'
@@ -35,6 +35,13 @@ import { ChatDrawer } from './components/ChatDrawer'
 // ══════════════════════════════════════════════════════════════
 // ── MAIN APP ────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
+
+interface DateRange {
+  from: string
+  to: string
+  previousFrom?: string
+  previousTo?: string
+}
 
 export default function App() {
   const { isAuthenticated, isLoading: authLoading, token, user, logout } = useAuth()
@@ -69,7 +76,7 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
 
   // Data fetching hook — owns loading, error, cache, abort
-  const { data, crossData, loading, error, selectedDate, setSelectedDate, fetchData } = useDashboardData()
+  const { data, crossData, ventaOnline, loading, error, selectedDate, setSelectedDate, fetchData } = useDashboardData()
 
   // Sync auth token into the API module
   useEffect(() => {
@@ -119,21 +126,23 @@ export default function App() {
   }, [isAuthenticated, settings.vigenciaOverrides, selectedYear])
 
   // Active date range from current filter mode
-  const activeDates = useMemo(() => {
+  const activeDates = useMemo((): DateRange | null => {
     if (filterMode === 'vigencia' && selectedVigencia) {
       const [from, to] = selectedVigencia.split('|')
-      // Find the selected vigencia and its predecessor for previous period
       const currentVig = vigencias.find(v => v.from === from && v.to === to)
       if (currentVig) {
         const prevVig = vigencias.find(v => v.month === currentVig.month - 1)
-          || (currentVig.month === 1 ? null : undefined) // January has no prev in same year
+          || (currentVig.month === 1 ? null : undefined)
         if (prevVig) {
           return { from, to, previousFrom: prevVig.from, previousTo: prevVig.to }
         }
       }
       return { from, to }
     }
-    if (filterMode === 'custom') return null // manual trigger
+    // QTD/YTD: vigencia-based date ranges (not calendar)
+    if (filterMode === 'qtd') return getVigenciaQuarterRange(vigencias)
+    if (filterMode === 'ytd') return getVigenciaYearRange(vigencias)
+    if (filterMode === 'custom') return null
     return getDateRange(filterMode)
   }, [filterMode, selectedVigencia, vigencias])
 
@@ -147,17 +156,24 @@ export default function App() {
   }, [filterMode, selectedVigencia, vigencias, selectedYear])
 
   const resolvedGoal = useMemo(() => {
-    if (!activeVigenciaKey) return null
-    return resolveEffectiveGoal(settings, activeVigenciaKey)
-  }, [activeVigenciaKey, settings])
+    // Vigencia mode: single vigencia goal
+    if (activeVigenciaKey) {
+      return resolveEffectiveGoal(settings, activeVigenciaKey)
+    }
+    // QTD/YTD: aggregate goals from all involved vigencias
+    if ((filterMode === 'qtd' || filterMode === 'ytd') && activeDates && vigencias.length) {
+      const aggregate = resolveAggregateGoal(settings, vigencias, activeDates.from, activeDates.to)
+      if (aggregate != null) {
+        return { goal: aggregate, distribution: settings.goalDistribution }
+      }
+    }
+    return null
+  }, [activeVigenciaKey, settings, filterMode, activeDates, vigencias])
 
   // Auto-fetch when activeDates changes (except custom)
   useEffect(() => {
     if (activeDates && filterMode !== 'custom') {
-      const { from, to } = activeDates
-      const previousFrom = 'previousFrom' in activeDates ? activeDates.previousFrom : undefined
-      const previousTo = 'previousTo' in activeDates ? activeDates.previousTo : undefined
-      fetchData(from, to, previousFrom, previousTo)
+      fetchData(activeDates.from, activeDates.to, activeDates.previousFrom, activeDates.previousTo)
     }
   }, [activeDates, filterMode, fetchData])
 
@@ -250,11 +266,16 @@ export default function App() {
                 onChange={e => setSelectedVigencia(e.target.value)}
                 className="filter-select"
               >
-                {vigencias.map(v => (
-                  <option key={v.month} value={`${v.from}|${v.to}`}>
-                    {v.name} ({v.from} → {v.to})
-                  </option>
-                ))}
+                {vigencias
+                  .filter(v => new Date(`${v.from}T00:00:00`) <= new Date())
+                  .map(v => {
+                    const isCurrent = v.month === new Date().getMonth() + 1
+                    return (
+                      <option key={v.month} value={`${v.from}|${v.to}`}>
+                        {isCurrent ? '★ ' : ''}{v.name} ({v.from} → {v.to})
+                      </option>
+                    )
+                  })}
               </select>
             )}
 
@@ -321,6 +342,8 @@ export default function App() {
                 selectedDate={selectedDate}
                 crossData={crossData}
                 effectiveGoal={resolvedGoal?.goal}
+                ventaOnline={ventaOnline}
+                vigencias={filterMode === 'qtd' || filterMode === 'ytd' ? vigencias : undefined}
               />
             </ErrorBoundary>
 
@@ -344,6 +367,8 @@ export default function App() {
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 selectedVendedor={selectedVendedor}
+                filterMode={filterMode}
+                vigencias={vigencias}
               />
             </ErrorBoundary>
 
