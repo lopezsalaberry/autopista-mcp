@@ -200,6 +200,31 @@
   border-top: 1px solid var(--border-light);
 }
 
+/* ─── Remember Me Checkbox ─────────────────────────────────── */
+.login-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  user-select: none;
+  margin-top: -4px;
+}
+
+.login-remember input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.login-remember span {
+  line-height: 1;
+}
+
+
 /* ─── Auth Loading Screen ──────────────────────────────────── */
 .auth-loading {
   min-height: 100vh;

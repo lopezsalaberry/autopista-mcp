@@ -9,17 +9,19 @@
  * - Error Boundaries around each major section
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import './index.css'
 
 import type { FilterMode, Page, Settings, Vigencia } from './types'
 import { fetchApi } from './api'
 import { setAuthToken } from './api'
-import { getDateRange, loadSettings, saveSettings, FILTER_PRESETS } from './helpers'
+import { getDateRange, loadSettings, saveSettings, formatDateShort, vigenciaKey, resolveEffectiveGoal, FILTER_PRESETS } from './helpers'
 import { useDashboardData } from './hooks/useDashboardData'
 
 import { useAuth } from './auth/AuthContext'
 import { LoginPage } from './auth/LoginPage'
+
+import { IconSettings, IconLogOut, IconAlertTriangle } from './components/Icons'
 
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { KPICards } from './components/KPICards'
@@ -36,7 +38,23 @@ import { ChatDrawer } from './components/ChatDrawer'
 export default function App() {
   const { isAuthenticated, isLoading: authLoading, token, user, logout } = useAuth()
   const [chatOpen, setChatOpen] = useState(false)
-  const [page, setPage] = useState<Page>('dashboard')
+
+  // URL-based routing — /settings or /dashboard
+  const getPage = (): Page => window.location.pathname === '/settings' ? 'settings' : 'dashboard'
+  const [page, setPageState] = useState<Page>(getPage)
+
+  const navigate = useCallback((target: Page) => {
+    const path = target === 'settings' ? '/settings' : '/dashboard'
+    window.history.pushState(null, '', path)
+    setPageState(target)
+  }, [])
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const handlePopState = () => setPageState(getPage())
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [vigencias, setVigencias] = useState<Vigencia[]>([])
   const [selectedVigencia, setSelectedVigencia] = useState('')
@@ -47,6 +65,7 @@ export default function App() {
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({})
   const [ownerTeams, setOwnerTeams] = useState<Record<string, string>>({})
   const [vendedoresExpanded, setVendedoresExpanded] = useState(false)
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
 
   // Data fetching hook — owns loading, error, cache, abort
   const { data, crossData, loading, error, selectedDate, setSelectedDate, fetchData } = useDashboardData()
@@ -70,19 +89,19 @@ export default function App() {
   // Load vigencias once authenticated, then apply per-month overrides
   useEffect(() => {
     if (!isAuthenticated) return
-    const year = new Date().getFullYear()
-    fetchApi<{ vigencias: Vigencia[] }>(`/vigencias?year=${year}`)
+    fetchApi<{ vigencias: Vigencia[] }>(`/vigencias?year=${selectedYear}`)
       .then(res => {
-        // Apply per-month overrides from settings
+        // Apply per-month overrides from settings using YYYY-MM keys
         const adjusted = res.vigencias.map(v => {
-          const override = settings.vigenciaOverrides[v.month]
+          const vKey = vigenciaKey({ year: selectedYear, month: v.month })
+          const override = settings.vigenciaOverrides[vKey]
           if (override) {
             return {
               ...v,
-              from: override.from,
-              to: override.to,
-              fromMs: new Date(`${override.from}T00:00:00.000Z`).getTime(),
-              toMs: new Date(`${override.to}T23:59:59.999Z`).getTime(),
+              from: override.from ?? v.from,
+              to: override.to ?? v.to,
+              fromMs: new Date(`${override.from ?? v.from}T00:00:00.000Z`).getTime(),
+              toMs: new Date(`${override.to ?? v.to}T23:59:59.999Z`).getTime(),
             }
           }
           return v
@@ -96,7 +115,7 @@ export default function App() {
         }
       })
       .catch(() => { /* vigencia selector will be empty */ })
-  }, [isAuthenticated, settings.vigenciaOverrides])
+  }, [isAuthenticated, settings.vigenciaOverrides, selectedYear])
 
   // Active date range from current filter mode
   const activeDates = useMemo(() => {
@@ -116,6 +135,20 @@ export default function App() {
     if (filterMode === 'custom') return null // manual trigger
     return getDateRange(filterMode)
   }, [filterMode, selectedVigencia, vigencias])
+
+  // Resolve the active vigencia key + effective goal from settings cascade
+  const activeVigenciaKey = useMemo(() => {
+    if (filterMode !== 'vigencia' || !selectedVigencia) return null
+    const [from] = selectedVigencia.split('|')
+    const vig = vigencias.find(v => v.from === from)
+    if (!vig) return null
+    return vigenciaKey({ year: selectedYear, month: vig.month })
+  }, [filterMode, selectedVigencia, vigencias, selectedYear])
+
+  const resolvedGoal = useMemo(() => {
+    if (!activeVigenciaKey) return null
+    return resolveEffectiveGoal(settings, activeVigenciaKey)
+  }, [activeVigenciaKey, settings])
 
   // Auto-fetch when activeDates changes (except custom)
   useEffect(() => {
@@ -161,8 +194,10 @@ export default function App() {
       <SettingsPage
         settings={settings}
         onSave={handleSaveSettings}
-        onBack={() => setPage('dashboard')}
+        onBack={() => navigate('dashboard')}
         vigenciasForSettings={vigencias}
+        selectedYear={selectedYear}
+        onChangeYear={setSelectedYear}
       />
     )
   }
@@ -179,11 +214,15 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {data && !loading && (
             <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-              {data.period.from} → {data.period.to}
+              {formatDateShort(data.period.from)} — {formatDateShort(data.period.to)}{data.period.to.startsWith(String(selectedYear)) ? '' : `, ${data.period.to.slice(0, 4)}`}
             </div>
           )}
-          <button className="header-btn" onClick={() => setPage('settings')}>⚙️</button>
-          <button className="header-btn" onClick={logout} title={`Cerrar sesión (${user?.displayName})`}>🚪</button>
+          <button className="header-btn" onClick={() => navigate('settings')} title="Configuración">
+            <IconSettings size={18} />
+          </button>
+          <button className="header-btn" onClick={logout} title={`Cerrar sesión (${user?.displayName})`}>
+            <IconLogOut size={18} />
+          </button>
         </div>
       </header>
 
@@ -197,7 +236,6 @@ export default function App() {
                 className={`filter-pill ${filterMode === p.mode ? 'active' : ''}`}
                 onClick={() => handleFilterChange(p.mode)}
               >
-                <span className="filter-pill-icon">{p.icon}</span>
                 {p.label}
               </button>
             ))}
@@ -254,7 +292,9 @@ export default function App() {
         {error && !loading && (
           <div className="panel">
             <div className="error-panel">
-              <div className="error-icon">⚠️</div>
+              <div className="error-icon" style={{ color: 'var(--amber)' }}>
+                <IconAlertTriangle size={28} />
+              </div>
               <div><strong>Error al cargar datos</strong></div>
               <div className="error-message">{error}</div>
               <button className="retry-btn" onClick={() => {
@@ -274,7 +314,13 @@ export default function App() {
         {data && !loading && (
           <>
             <ErrorBoundary message="Error en indicadores KPI">
-              <KPICards data={data} settings={settings} selectedDate={selectedDate} crossData={crossData} />
+              <KPICards
+                data={data}
+                settings={settings}
+                selectedDate={selectedDate}
+                crossData={crossData}
+                effectiveGoal={resolvedGoal?.goal}
+              />
             </ErrorBoundary>
 
             <ErrorBoundary message="Error en panel de vendedores">
@@ -301,7 +347,15 @@ export default function App() {
             </ErrorBoundary>
 
             <ErrorBoundary message="Error en datos interactivos">
-              <InteractiveDataSection data={data} crossData={crossData} selectedDate={selectedDate} selectedVendedor={selectedVendedor} ownerNames={ownerNames} />
+              <InteractiveDataSection
+                data={data}
+                crossData={crossData}
+                selectedDate={selectedDate}
+                selectedVendedor={selectedVendedor}
+                ownerNames={ownerNames}
+                distribution={resolvedGoal?.distribution}
+                effectiveGoal={resolvedGoal?.goal}
+              />
             </ErrorBoundary>
           </>
         )}

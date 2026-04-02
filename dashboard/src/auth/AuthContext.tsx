@@ -22,7 +22,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isLoading: boolean
   authConfig: AuthConfig | null
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, remember?: boolean) => Promise<void>
   logout: () => void
   error: string | null
 }
@@ -31,6 +31,32 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 const API_BASE = '/api/dashboard'
 const TOKEN_KEY = 'medicus-dashboard-token'
+const REMEMBER_KEY = 'medicus-dashboard-remember'
+
+/** Read token from whichever storage it was persisted in. */
+function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY)
+}
+
+/** Persist token to the appropriate storage based on "remember me". */
+function storeToken(token: string, remember: boolean): void {
+  if (remember) {
+    localStorage.setItem(TOKEN_KEY, token)
+    localStorage.setItem(REMEMBER_KEY, '1')
+    sessionStorage.removeItem(TOKEN_KEY)
+  } else {
+    sessionStorage.setItem(TOKEN_KEY, token)
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(REMEMBER_KEY)
+  }
+}
+
+/** Clear token from both storages. */
+function clearStoredToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(REMEMBER_KEY)
+  sessionStorage.removeItem(TOKEN_KEY)
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -50,9 +76,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
   }, [])
 
-  // Try to restore session from stored token
+  // Try to restore session from stored token (localStorage or sessionStorage)
   useEffect(() => {
-    const stored = sessionStorage.getItem(TOKEN_KEY)
+    const stored = getStoredToken()
     if (!stored) {
       setIsLoading(false)
       return
@@ -71,13 +97,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user)
       })
       .catch(() => {
-        // Token expired or invalid — clear it
-        sessionStorage.removeItem(TOKEN_KEY)
+        // Token expired or invalid — clear from both storages
+        clearStoredToken()
       })
       .finally(() => setIsLoading(false))
   }, [])
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, remember = false) => {
     setError(null)
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
@@ -94,8 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setToken(data.token)
       setUser(data.user)
-      sessionStorage.setItem(TOKEN_KEY, data.token)
-    } catch (err) {
+      storeToken(data.token, remember)
+    } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error desconocido'
       setError(message)
       throw err
@@ -105,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setToken(null)
     setUser(null)
-    sessionStorage.removeItem(TOKEN_KEY)
+    clearStoredToken()
   }, [])
 
   return (
@@ -124,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')

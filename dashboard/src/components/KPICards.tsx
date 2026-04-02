@@ -6,11 +6,17 @@ import { useMemo } from 'react'
 import type { CrossDataRow, LeadsData, Settings } from '../types'
 import { fmt, fmtPct, computeGoalProgress, formatDateShort } from '../helpers'
 
-export function KPICards({ data, settings, selectedDate, crossData }: {
-  data: LeadsData; settings: Settings; selectedDate: string | null; crossData: CrossDataRow[]
-}) {
+interface Props {
+  data: LeadsData
+  settings: Settings
+  selectedDate: string | null
+  crossData: CrossDataRow[]
+  effectiveGoal?: number
+}
+
+export function KPICards({ data, settings, selectedDate, crossData, effectiveGoal }: Props) {
   const prev = data.previousPeriod
-  const goal = computeGoalProgress(data, settings)
+  const goal = computeGoalProgress(data, settings, effectiveGoal)
 
   // When a day is selected, compute KPIs from crossData for that day
   const dayData = useMemo(() => {
@@ -21,6 +27,7 @@ export function KPICards({ data, settings, selectedDate, crossData }: {
     const conversionRate = total > 0 ? Number(((converted / total) * 100).toFixed(2)) : 0
     return { total, converted, conversionRate }
   }, [selectedDate, crossData])
+
 
   const displayTotal = dayData?.total ?? data.total
   const displayConverted = dayData?.converted ?? data.converted
@@ -58,6 +65,7 @@ export function KPICards({ data, settings, selectedDate, crossData }: {
             </div>
           </div>
         )}
+
       </div>
 
       {/* Convertidos */}
@@ -90,7 +98,7 @@ export function KPICards({ data, settings, selectedDate, crossData }: {
           <div className="kpi-label">Leads Periodo Anterior</div>
           <div className="kpi-value">{fmt(prev.total)}</div>
           <div className="kpi-delta" style={{ background: 'var(--brand-pale)', color: 'var(--brand-primary)' }}>
-            {prev.from} → {prev.to}
+            {formatDateShort(prev.from)} — {formatDateShort(prev.to)}
           </div>
         </div>
       )}

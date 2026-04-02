@@ -68,8 +68,21 @@ router.get("/vigencias", (req: Request, res: Response) => {
   const startDay = parseInt(req.query.startDay as string) || 21;
   const endDay = parseInt(req.query.endDay as string) || 22;
 
-  const config: Partial<VigenciaConfig> = { startDay, endDay };
-  const vigencias = getAllVigencias(year, config);
+  // Year bounds validation (CTO audit finding)
+  const currentYear = new Date().getFullYear();
+  if (isNaN(year) || year < 2020 || year > currentYear + 1) {
+    res.status(400).json({
+      error: {
+        code: "INVALID_YEAR",
+        message: `Year must be between 2020 and ${currentYear + 1}. Got: ${year}`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  const vigenciaConfig: Partial<VigenciaConfig> = { startDay, endDay };
+  const vigencias = getAllVigencias(year, vigenciaConfig);
 
   res.json({
     year,

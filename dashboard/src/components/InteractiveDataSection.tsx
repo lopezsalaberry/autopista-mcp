@@ -4,9 +4,10 @@
  */
 
 import { useState, useMemo, useCallback } from 'react'
-import type { CrossDataRow, LeadsData, SortState } from '../types'
+import type { CrossDataRow, GoalDistribution, LeadsData, SortState } from '../types'
 import { fmt, fmtPct, convClass, toggleSort, applySortFn, CANAL_COLORS, CAT_COLORS } from '../helpers'
 import { SortIcon } from './SortIcon'
+import { IconPieChart, IconRadio, IconMegaphone } from './Icons'
 
 // Canal display names — co-located here since only this component uses them
 const CANAL_DISPLAY: Record<string, string> = {
@@ -24,12 +25,14 @@ const CANAL_DISPLAY: Record<string, string> = {
   'BBDD': 'BBDD',
 }
 
-export function InteractiveDataSection({ data, crossData, selectedDate, selectedVendedor, ownerNames }: {
+export function InteractiveDataSection({ data, crossData, selectedDate, selectedVendedor, ownerNames, distribution, effectiveGoal }: {
   data: LeadsData
   crossData: CrossDataRow[]
   selectedDate: string | null
   selectedVendedor: string | null
   ownerNames: Record<string, string>
+  distribution?: { byCategoria?: GoalDistribution; byCanal?: GoalDistribution }
+  effectiveGoal?: number
 }) {
   const [selectedCat, setSelectedCatRaw] = useState<string | null>(null)
   const [selectedCanal, setSelectedCanal] = useState<string | null>(null)
@@ -190,7 +193,7 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
       {/* Categoría Filter Chips */}
       <div className="panel">
         <div className="section-title">
-          <span className="icon">📊</span> Composición por Categoría
+          <span className="section-icon"><IconPieChart /></span> Composición por Categoría
           {hasAnyFilter && (
             <button className="filter-clear" onClick={clearAll}>
               ✕ Limpiar filtros
@@ -198,19 +201,39 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
           )}
         </div>
         <div className="composition-grid">
-          {categoriasToShow.map(cat => (
-            <div
-              key={cat.name}
-              className={`composition-item clickable ${selectedCat === cat.name ? 'active' : ''} ${selectedCat && selectedCat !== cat.name ? 'dimmed' : ''}`}
-              onClick={() => setSelectedCat(prev => prev === cat.name ? null : cat.name)}
-            >
-              <div className="composition-pct" style={{ color: CAT_COLORS[cat.name] || 'var(--brand-primary)' }}>
-                {cat.pct}%
+          {categoriasToShow.map(cat => {
+            // Sub-goal info from distribution
+            const catDist = distribution?.byCategoria
+            const allocPct = catDist?.enabled ? (catDist.allocations[cat.name] ?? 0) : 0
+            const subGoal = effectiveGoal && allocPct > 0 ? Math.round(effectiveGoal * (allocPct / 100)) : 0
+
+            return (
+              <div
+                key={cat.name}
+                className={`composition-item clickable ${selectedCat === cat.name ? 'active' : ''} ${selectedCat && selectedCat !== cat.name ? 'dimmed' : ''}`}
+                onClick={() => setSelectedCat(prev => prev === cat.name ? null : cat.name)}
+              >
+                <div className="composition-pct" style={{ color: CAT_COLORS[cat.name] || 'var(--brand-primary)' }}>
+                  {cat.pct}%
+                </div>
+                <div className="composition-name">{cat.name}</div>
+                <div className="composition-count">{fmt(cat.count)} leads · {fmtPct(cat.rate)} conv.</div>
+                {subGoal > 0 && !selectedDate && (
+                  <div className="composition-subgoal">
+                    <div className="subgoal-bar-track">
+                      <div
+                        className={`subgoal-bar-fill ${cat.count >= subGoal ? 'on-track' : 'behind'}`}
+                        style={{ width: `${Math.min((cat.count / subGoal) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="composition-subgoal-text">
+                      {fmt(cat.count)}/{fmt(subGoal)} ({allocPct}%)
+                    </span>
+                  </div>
+                )}
               </div>
-              <div className="composition-name">{cat.name}</div>
-              <div className="composition-count">{fmt(cat.count)} leads · {fmtPct(cat.rate)} conv.</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
         {hasAnyFilter && (
           <div className="filter-active-banner">
@@ -235,7 +258,7 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
       {/* Canales — Clickable rows that filter campaigns */}
       <div className="panel">
         <div className="section-title">
-          <span className="icon">📡</span> Canales{canalTitle ? ` — ${canalTitle}` : ''}
+          <span className="section-icon"><IconRadio /></span> Canales{canalTitle ? ` — ${canalTitle}` : ''}
           {selectedCanal && (
             <button className="filter-clear" onClick={() => setSelectedCanal(null)}>
               ✕ Quitar filtro canal
@@ -299,7 +322,7 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
       {/* Campañas — filtered by category and/or canal */}
       <div className="panel">
         <div className="section-title">
-          <span className="icon">📋</span> Campañas{campanaTitle ? ` — ${campanaTitle}` : ''}
+          <span className="section-icon"><IconMegaphone /></span> Campañas{campanaTitle ? ` — ${campanaTitle}` : ''}
         </div>
         {campanasToShow.length > 0 ? (
           <table className="data-table sortable-table">

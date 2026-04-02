@@ -38,11 +38,25 @@ export interface VigenciaOverride {
   from: string  // YYYY-MM-DD
   to: string    // YYYY-MM-DD
   goalLeads?: number  // per-month goal (overrides global)
+  distribution?: {
+    byCategoria?: GoalDistribution
+    byCanal?: GoalDistribution
+  }
+}
+
+export interface GoalDistribution {
+  enabled: boolean
+  allocations: Record<string, number>  // name → percentage (0-100)
 }
 
 export interface Settings {
   goalLeads: number
-  vigenciaOverrides: Record<number, VigenciaOverride> // month (1-12) → custom dates
+  years: number[]  // dynamic year list, validated: 2020 ≤ year ≤ currentYear+1, max 5
+  vigenciaOverrides: Record<string, VigenciaOverride>  // "YYYY-MM" key
+  goalDistribution: {
+    byCategoria?: GoalDistribution
+    byCanal?: GoalDistribution
+  }
 }
 
 // ── UI State Types ──────────────────────────────────────────

@@ -127,13 +127,13 @@
 }
 
 .kpi-card .kpi-delta {
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 600;
   margin-top: 6px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 3px;
+  padding: 1px 6px;
   border-radius: 20px;
 }
 
@@ -148,24 +148,22 @@
 }
 
 .kpi-delta .arrow {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
 }
 
-/* ── Section Titles ─────────────────────────────────── */
+/* ── Section Titles (subtle label, not headline) ─── */
 .section-title {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   margin-bottom: 16px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--brand-pale);
+  padding-bottom: 0;
+  border-bottom: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.section-title .icon {
-  font-size: 1.1rem;
+  gap: 6px;
 }
 
 /* ── Cards / Panels ─────────────────────────────────── */
@@ -476,45 +474,46 @@
   text-align: right;
 }
 
-/* ── Filter Pill Bar ───────────────────────────────────────── */
+/* ── Segmented Control (replaces filter pills) ─────────────── */
 .filter-pills {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-card);
 }
 
 .filter-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--bg-card);
+  gap: 0;
+  padding: 7px 16px;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 0.82rem;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.15s, color 0.15s;
   white-space: nowrap;
 }
 
+.filter-pill:last-child {
+  border-right: none;
+}
+
 .filter-pill:hover {
-  border-color: var(--brand-primary);
-  color: var(--brand-primary);
   background: var(--brand-pale);
+  color: var(--brand-primary);
 }
 
 .filter-pill.active {
   background: var(--brand-primary);
   color: white;
-  border-color: var(--brand-primary);
-  box-shadow: 0 2px 8px rgba(0,85,165,0.25);
-}
-
-.filter-pill-icon {
-  font-size: 0.9rem;
+  box-shadow: none;
 }
 
 .filter-context {
@@ -522,6 +521,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
+  min-height: 44px;
 }
 
 .filter-select {

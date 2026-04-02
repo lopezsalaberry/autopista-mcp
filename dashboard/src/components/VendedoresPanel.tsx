@@ -7,6 +7,7 @@ import { useState, useMemo } from 'react'
 import type { CrossDataRow, SortState } from '../types'
 import { fmt, fmtPct, convClass, toggleSort, applySortFn, MIN_LEADS_FOR_RATE_RANK } from '../helpers'
 import { SortIcon } from './SortIcon'
+import { IconUsers } from './Icons'
 
 export function VendedoresPanel({ crossData, ownerNames, ownerTeams, selectedVendedor, onSelectVendedor, expanded, onToggleExpanded }: {
   crossData: CrossDataRow[]
@@ -102,7 +103,7 @@ export function VendedoresPanel({ crossData, ownerNames, ownerTeams, selectedVen
   return (
     <div className="panel vendedores-panel">
       <div className="section-title" onClick={onToggleExpanded} style={{ cursor: 'pointer' }}>
-        <span className="icon">👥</span> Vendedores
+        <span className="section-icon"><IconUsers /></span> Vendedores
         {selectedName && <span className="vendedor-active-label">— {selectedName}</span>}
         <span className="vendedores-count">{vendedores.length} vendedores</span>
         <div className="vendedor-controls">

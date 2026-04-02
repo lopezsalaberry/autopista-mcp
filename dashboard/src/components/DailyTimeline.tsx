@@ -20,6 +20,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
+import { IconTrendingUp } from './Icons'
 import type { CrossDataRow } from '../types'
 
 interface DayPoint {
@@ -244,7 +245,7 @@ export function DailyTimeline({
   }, [onSelectDate, selectedDate])
 
   // Custom legend renderer with clickable items
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
   const renderLegend = useCallback((_p: any) => {
     return (
       <div className="timeline-legend">
@@ -277,7 +278,7 @@ export function DailyTimeline({
     return (
       <div className="panel timeline-panel">
         <div className="section-title">
-          <span className="icon">📈</span> Evolución Diaria
+          <span className="section-icon"><IconTrendingUp /></span> Evolución Diaria
         </div>
         <div className="timeline-skeleton">
           <div className="timeline-skeleton-bar" />
@@ -289,7 +290,7 @@ export function DailyTimeline({
   return (
     <div className="panel timeline-panel">
       <div className="section-title">
-        <span className="icon">📈</span> Evolución Diaria
+        <span className="section-icon"><IconTrendingUp /></span> Evolución Diaria
         {selectedDate && (
           <button className="filter-clear" onClick={() => onSelectDate(null)}>
             ✕ Quitar filtro de día
@@ -299,7 +300,7 @@ export function DailyTimeline({
 
       {selectedDate && (
         <div className="timeline-selected-banner">
-          📌 Mostrando datos del <strong>{formatShortDate(selectedDate)}</strong>
+          Mostrando datos del <strong>{formatShortDate(selectedDate)}</strong>
           <span className="timeline-hint"> — clickeá otro punto o "Quitar filtro" para volver al periodo completo</span>
         </div>
       )}

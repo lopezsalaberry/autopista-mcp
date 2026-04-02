@@ -1,10 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { useAuth } from './AuthContext'
 
+const REMEMBER_KEY = 'medicus-dashboard-remember'
+
 export function LoginPage() {
   const { login, error: authError, authConfig } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(() => localStorage.getItem(REMEMBER_KEY) === '1')
   const [loading, setLoading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
@@ -19,7 +22,7 @@ export function LoginPage() {
     setLocalError(null)
     setLoading(true)
     try {
-      await login(username.trim(), password.trim())
+      await login(username.trim(), password.trim(), remember)
     } catch {
       // error is handled by AuthContext
     } finally {
@@ -107,9 +110,26 @@ export function LoginPage() {
               />
             </div>
 
+            {/* Remember me */}
+            <label className="login-remember" htmlFor="login-remember">
+              <input
+                id="login-remember"
+                type="checkbox"
+                checked={remember}
+                onChange={e => setRemember(e.target.checked)}
+                disabled={loading}
+              />
+              <span>Recordar sesión</span>
+            </label>
+
             {error && (
               <div className="login-error">
-                <span className="login-error-icon">⚠</span>
+                <span className="login-error-icon">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                </span>
                 {error}
               </div>
             )}

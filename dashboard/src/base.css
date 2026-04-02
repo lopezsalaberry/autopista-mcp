@@ -71,3 +71,33 @@ html {
 
 body { min-height: 100vh; }
 #root { min-height: 100vh; }
+
+/* ── SVG Icon Utilities ────────────────────────── */
+.section-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.section-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Animations ────────────────────────────────── */
+@keyframes savedFadeOut {
+  0%   { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.saved-confirmation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--green);
+  animation: savedFadeOut 2.5s ease forwards;
+}
