@@ -20,16 +20,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
-
-interface CrossDataRow {
-  categoria: string
-  canal: string
-  campana: string
-  date: string
-  leads: number
-  converted: number
-  ownerId: string
-}
+import type { CrossDataRow } from '../types'
 
 interface DayPoint {
   date: string       // YYYY-MM-DD
@@ -41,6 +32,9 @@ interface DayPoint {
   sinClasificar: number
   converted: number
 }
+
+/** Numeric-only keys used for category aggregation */
+type DayPointNumericKey = 'total' | 'pago' | 'organico' | 'outbound' | 'sinClasificar' | 'converted'
 
 interface DailyTimelineProps {
   crossData: CrossDataRow[]
@@ -78,7 +72,7 @@ function generateDateRange(from: string, to: string): string[] {
   return dates
 }
 
-const CATEGORY_MAP: Record<string, keyof DayPoint> = {
+const CATEGORY_MAP: Record<string, DayPointNumericKey> = {
   'Pago': 'pago',
   'Organico': 'organico',
   'Outbound': 'outbound',
@@ -107,13 +101,19 @@ const ALL_SERIES: SeriesConfig[] = [
 
 // ── Custom tooltip (respects hidden series) ─────────────────
 
-function CustomTooltip({ active, payload, visibleSeries }: any) {
+interface CustomTooltipProps {
+  active?: boolean
+  payload?: Array<{ payload: DayPoint }>
+  visibleSeries?: Set<string>
+}
+
+function CustomTooltip({ active, payload, visibleSeries }: CustomTooltipProps) {
   if (!active || !payload?.length) return null
 
-  const point = payload[0]?.payload as DayPoint | undefined
+  const point = payload[0]?.payload
   if (!point) return null
 
-  const visible = visibleSeries as Set<string> | undefined
+  const visible = visibleSeries
 
   return (
     <div className="timeline-tooltip">
@@ -182,7 +182,8 @@ export function DailyTimeline({
     const allDates = generateDateRange(from, to)
 
     // Aggregate from crossData
-    const dayMap = new Map<string, Omit<DayPoint, 'date' | 'label'>>()
+    type DayPointAgg = Record<DayPointNumericKey, number>
+    const dayMap = new Map<string, DayPointAgg>()
 
     for (const row of crossData) {
       if (!row.date || row.date === 'unknown') continue
@@ -193,9 +194,9 @@ export function DailyTimeline({
       if (existing) {
         existing.total += row.leads
         existing.converted += row.converted
-        ;(existing as any)[catKey] = ((existing as any)[catKey] || 0) + row.leads
+        existing[catKey] = (existing[catKey] || 0) + row.leads
       } else {
-        const point: any = {
+        const point: DayPointAgg = {
           total: row.leads,
           pago: 0,
           organico: 0,
@@ -234,15 +235,17 @@ export function DailyTimeline({
   }, [timelineData.length])
 
   // Handle click on chart point
-  const handleClick = useCallback((data: any) => {
-    if (data?.activePayload?.[0]?.payload) {
-      const clickedDate = data.activePayload[0].payload.date
+  const handleClick = useCallback((data: Record<string, unknown>) => {
+    const activePayload = data?.activePayload as Array<{ payload: DayPoint }> | undefined
+    if (activePayload?.[0]?.payload) {
+      const clickedDate = activePayload[0].payload.date
       onSelectDate(selectedDate === clickedDate ? null : clickedDate)
     }
   }, [onSelectDate, selectedDate])
 
   // Custom legend renderer with clickable items
-  const renderLegend = useCallback((props: any) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const renderLegend = useCallback((_p: any) => {
     return (
       <div className="timeline-legend">
         {ALL_SERIES.map(s => {
@@ -353,8 +356,8 @@ export function DailyTimeline({
                 type="monotone"
                 dataKey="_selected"
                 stroke="transparent"
-                dot={(props: any) => {
-                  if (props.payload?._selected == null) return <></>
+                dot={(props: { cx?: number; cy?: number; payload?: Record<string, unknown> }) => {
+                  if (props.payload?._selected == null || !props.cx || !props.cy) return <></>
                   return (
                     <circle
                       cx={props.cx}
