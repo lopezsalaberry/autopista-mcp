@@ -29,6 +29,7 @@
 8. Use `catch (e: any)` — always `catch (err: unknown)` with type narrowing
 9. Call external APIs without `AbortSignal.timeout()`
 10. Swallow errors silently — log server-side, show UI state client-side
+11. Run `git commit` or `git push` without explicit user request — always wait for approval
 
 ### ALWAYS
 
