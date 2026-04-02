@@ -9,6 +9,7 @@ export interface CrossDataRow {
   categoria: string
   canal: string
   campana: string
+  source: string
   date: string
   leads: number
   converted: number

@@ -195,7 +195,12 @@ export function VendedoresPanel({ crossData, ownerNames, ownerTeams, selectedVen
                     <tr
                       key={v.ownerId}
                       className={`drill-row vendedor-row ${isActive ? 'vendedor-active' : ''} ${isDimmed ? 'vendedor-dimmed' : ''} ${belowThreshold ? 'vendedor-below-threshold' : ''}`}
-                      onClick={() => onSelectVendedor(selectedVendedor === v.ownerId ? null : v.ownerId)}
+                      onClick={() => {
+                        const newVal = selectedVendedor === v.ownerId ? null : v.ownerId
+                        onSelectVendedor(newVal)
+                        // Auto-collapse when selecting (not when deselecting)
+                        if (newVal && expanded) onToggleExpanded()
+                      }}
                       style={{ cursor: 'pointer' }}
                     >
                       <td className="vendedor-rank" style={{ textAlign: 'center' }}>

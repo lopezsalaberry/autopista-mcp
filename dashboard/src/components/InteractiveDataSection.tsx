@@ -52,8 +52,8 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
   const crossDataReady = crossData.length > 0
 
   const canalsToShow = useMemo(() => {
-    // Fallback to server-side data while crossData loads (and no date/cat/vendedor filter)
-    if (!crossDataReady || (!selectedCat && !selectedDate && !selectedVendedor)) {
+    // Fallback to server-side data only while cross-data is loading
+    if (!crossDataReady) {
       return data.byCanal.map(c => ({
         value: c.name,
         displayName: c.displayName,
@@ -96,8 +96,8 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
   }, [crossData, crossDataReady, selectedCat, selectedVendedor, selectedDate, data.byCanal])
 
   const campanasToShow = useMemo(() => {
-    // Fallback to server-side data while crossData loads
-    if (!crossDataReady || (!selectedCat && !selectedCanal && !selectedDate && !selectedVendedor)) {
+    // Fallback to server-side data only while cross-data is loading
+    if (!crossDataReady) {
       return data.topCampanas.map(c => ({
         value: c.name,
         displayName: c.name,
@@ -141,9 +141,10 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
 
   const maxCanalCount = Math.max(...canalsToShow.map(c => c.count), 1)
 
-  // ── Categorías — recalculate when date is selected ─────────
+  // ── Categorías — always use cross-data when ready for consistency ─
   const categoriasToShow = useMemo(() => {
-    if ((!selectedDate && !selectedVendedor) || !crossDataReady) return data.byCategoria
+    // Fall back to server-side data only while cross-data is loading
+    if (!crossDataReady) return data.byCategoria
 
     let rows = crossData
     if (selectedDate) rows = rows.filter(r => r.date === selectedDate)

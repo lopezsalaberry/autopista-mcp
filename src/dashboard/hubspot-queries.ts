@@ -12,6 +12,15 @@
 import { config } from "../shared/config.js";
 import { logger } from "../shared/logger.js";
 import { getExcludedOwnerIds, MAX_AGE, ALL_CANALES, CANAL_DISPLAY_NAMES } from "./dashboard-router.js";
+import {
+  computeSmartCategoria,
+  computeSmartCanal,
+  computeSmartCampana,
+  computeSmartSource,
+  createStats,
+  recordReclassification,
+  logStats,
+} from "./smart-attribution.js";
 
 const API = "https://api.hubapi.com";
 
@@ -20,6 +29,7 @@ export interface CrossDataRow {
   categoria: string;
   canal: string;
   campana: string;
+  source: string;      // human-readable traffic source (Google Ads, Meta Ads, etc.)
   date: string;       // YYYY-MM-DD in America/Buenos_Aires timezone
   leads: number;
   converted: number;
@@ -164,7 +174,13 @@ function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown
 }
 
 // ─── Paginated Contact Fetch for Cross-Data ─────────────────
-const CROSS_DATA_PROPS = ["categoria", "canal", "campana", "convertido", "fecha_primera_asignacion", "edad", "hubspot_owner_id"];
+const CROSS_DATA_PROPS = [
+  "categoria", "canal", "campana", "convertido",
+  "fecha_primera_asignacion", "edad", "hubspot_owner_id",
+  // Smart attribution signals (consumed server-side only, never sent to frontend)
+  "hs_analytics_source", "hs_analytics_source_data_1",
+  "utm_source", "utm_medium", "utm_campaign",
+];
 const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
 
 /**
@@ -176,6 +192,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
   const start = Date.now();
   const map = new Map<string, { leads: number; converted: number }>();
   let totalContacts = 0;
+  const stats = createStats();
   let totalPages = 0;
 
   // Helper: paginate a single filter set and aggregate into the map
@@ -239,13 +256,20 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
         // Bucket by date — HubSpot returns fecha_primera_asignacion as ISO "YYYY-MM-DD"
         const date = props.fecha_primera_asignacion || "unknown";
-
-        const canal = props.canal || "Sin canal";
-        const campana = props.campana || "Sin campaña";
         const isConverted = props.convertido === "true";
         const ownerId = props.hubspot_owner_id || "sin_asignar";
 
-        const key = `${label}\x00${canal}\x00${campana}\x00${date}\x00${ownerId}`;
+        // Smart Attribution v2: compute correct values from tracking signals
+        const rawCanal = props.canal || "Sin canal";
+        const rawCampana = props.campana || "Sin campaña";
+        const smartCat = computeSmartCategoria(props);
+        const smartCanal = computeSmartCanal(props);
+        const smartCampana = computeSmartCampana(props);
+        const smartSource = computeSmartSource(props);
+
+        recordReclassification(stats, label, rawCanal, rawCampana, smartCat, smartCanal, smartCampana);
+
+        const key = `${smartCat}\x00${smartCanal}\x00${smartCampana}\x00${smartSource}\x00${date}\x00${ownerId}`;
         const existing = map.get(key);
         if (existing) {
           existing.leads++;
@@ -287,12 +311,13 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
   const result: CrossDataRow[] = [];
   for (const [key, val] of map) {
-    const [categoria, canal, campana, date, ownerId] = key.split("\x00");
-    result.push({ categoria, canal, campana, date, ownerId, leads: val.leads, converted: val.converted });
+    const [categoria, canal, campana, source, date, ownerId] = key.split("\x00");
+    result.push({ categoria, canal, campana, source, date, ownerId, leads: val.leads, converted: val.converted });
   }
 
   const elapsed = Date.now() - start;
   logger.info({ elapsed, pages: totalPages, contacts: totalContacts, uniqueTuples: result.length }, "CrossData fetched");
+  logStats(stats, { from: fromMs, to: toMs });
 
   return result;
 }

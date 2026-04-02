@@ -245,7 +245,8 @@ router.get("/cross-data", async (req: Request, res: Response) => {
     return;
   }
 
-  const cacheKey = dashboardCache.key("crossData", { from, to });
+  const CACHE_VERSION = "v2-smart-attr";
+  const cacheKey = dashboardCache.key("crossData", { from, to, v: CACHE_VERSION });
   const cached = dashboardCache.get(cacheKey);
   if (cached) {
     res.json(cached);
