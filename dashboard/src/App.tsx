@@ -1402,7 +1402,7 @@ export default function App() {
   const clientCache = useRef(new Map<string, { data: LeadsData; crossData?: CrossDataRow[]; ts: number }>())
   const abortRef = useRef<AbortController | null>(null)
 
-  const fetchData = useCallback(async (from: string, to: string) => {
+  const fetchData = useCallback(async (from: string, to: string, previousFrom?: string, previousTo?: string) => {
     // Cancel any in-flight request
     abortRef.current?.abort()
     abortRef.current = new AbortController()
@@ -1435,9 +1435,15 @@ export default function App() {
     try {
       const signal = abortRef.current.signal
 
+      // Build leads URL — include previous period dates when available (vigencia mode)
+      let leadsUrl = `/leads?from=${from}&to=${to}`
+      if (previousFrom && previousTo) {
+        leadsUrl += `&previousFrom=${previousFrom}&previousTo=${previousTo}`
+      }
+
       // Fetch leads + cross-data in parallel for instant full render
       const [result, crossResult] = await Promise.all([
-        fetchApi<LeadsData>(`/leads?from=${from}&to=${to}`, signal),
+        fetchApi<LeadsData>(leadsUrl, signal),
         fetchApi<CrossDataRow[]>(`/cross-data?from=${from}&to=${to}`, signal)
           .catch(err => {
             if (err instanceof DOMException && err.name === 'AbortError') throw err
@@ -1469,20 +1475,32 @@ export default function App() {
     }
   }, [])
 
-  // Active date range from current filter mode
+  // Active date range from current filter mode (includes previous vigencia dates when applicable)
   const activeDates = useMemo(() => {
     if (filterMode === 'vigencia' && selectedVigencia) {
       const [from, to] = selectedVigencia.split('|')
+      // Find the selected vigencia and its predecessor to get correct previous period dates
+      const currentVig = vigencias.find(v => v.from === from && v.to === to)
+      if (currentVig) {
+        const prevVig = vigencias.find(v => v.month === currentVig.month - 1)
+          || (currentVig.month === 1 ? null : undefined) // January has no prev in same year
+        if (prevVig) {
+          return { from, to, previousFrom: prevVig.from, previousTo: prevVig.to }
+        }
+      }
       return { from, to }
     }
     if (filterMode === 'custom') return null // manual trigger
     return getDateRange(filterMode)
-  }, [filterMode, selectedVigencia])
+  }, [filterMode, selectedVigencia, vigencias])
 
   // Auto-fetch when activeDates changes (except custom)
   useEffect(() => {
     if (activeDates && filterMode !== 'custom') {
-      fetchData(activeDates.from, activeDates.to)
+      const { from, to } = activeDates
+      const previousFrom = 'previousFrom' in activeDates ? activeDates.previousFrom : undefined
+      const previousTo = 'previousTo' in activeDates ? activeDates.previousTo : undefined
+      fetchData(from, to, previousFrom, previousTo)
     }
   }, [activeDates, filterMode, fetchData])
 

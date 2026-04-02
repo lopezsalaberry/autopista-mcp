@@ -100,6 +100,8 @@ function computeCacheTTL(from: string, to: string): number {
 
 router.get("/leads", async (req: Request, res: Response) => {
   const { from, to } = req.query as { from?: string; to?: string };
+  const previousFrom = req.query.previousFrom as string | undefined;
+  const previousTo = req.query.previousTo as string | undefined;
 
   if (!from || !to) {
     res.status(400).json({
@@ -109,15 +111,27 @@ router.get("/leads", async (req: Request, res: Response) => {
   }
 
   // Validate date format
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(from) || !dateRe.test(to)) {
     res.status(400).json({
       error: { code: "INVALID_DATE_FORMAT", message: "Dates must be in YYYY-MM-DD format" },
     });
     return;
   }
 
-  // Check cache
-  const cacheKey = dashboardCache.key("leads", { from, to });
+  // Validate optional previous period dates
+  if ((previousFrom && !dateRe.test(previousFrom)) || (previousTo && !dateRe.test(previousTo))) {
+    res.status(400).json({
+      error: { code: "INVALID_DATE_FORMAT", message: "previousFrom/previousTo must be in YYYY-MM-DD format" },
+    });
+    return;
+  }
+
+  // Check cache (include previous period in key when explicitly provided)
+  const cacheKey = dashboardCache.key("leads", {
+    from, to,
+    ...(previousFrom && previousTo ? { previousFrom, previousTo } : {}),
+  });
   const cached = dashboardCache.get(cacheKey);
   if (cached) {
     res.json(cached);
@@ -125,8 +139,11 @@ router.get("/leads", async (req: Request, res: Response) => {
   }
 
   try {
-    // Compute previous period automatically
-    const prev = getPreviousPeriod(from, to);
+    // Use explicit previous period if provided (e.g., from vigencia settings),
+    // otherwise fall back to arithmetic calculation (same duration, immediately before)
+    const prev = (previousFrom && previousTo)
+      ? { from: previousFrom, to: previousTo }
+      : getPreviousPeriod(from, to);
 
     const data = await fetchLeadsData(from, to, prev.from, prev.to);
 
