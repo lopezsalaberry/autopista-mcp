@@ -20,8 +20,10 @@ export interface CrossDataRow {
   categoria: string;
   canal: string;
   campana: string;
+  date: string;       // YYYY-MM-DD in America/Buenos_Aires timezone
   leads: number;
   converted: number;
+  ownerId: string;    // hubspot_owner_id ("sin_asignar" if unset)
 }
 
 export interface LeadsResponse {
@@ -153,7 +155,7 @@ function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown
 }
 
 // ─── Paginated Contact Fetch for Cross-Data ─────────────────
-const CROSS_DATA_PROPS = ["categoria", "canal", "campana", "convertido"];
+const CROSS_DATA_PROPS = ["categoria", "canal", "campana", "convertido", "fecha_primera_asignacion", "edad", "hubspot_owner_id"];
 const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
 
 /**
@@ -217,11 +219,20 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
       for (const contact of data.results || []) {
         const props = contact.properties || {};
+
+        // Filter out over-age contacts (consistent with KPI logic)
+        const edad = parseInt(props.edad || "0", 10);
+        if (edad > MAX_AGE) continue;
+
+        // Bucket by date — HubSpot returns fecha_primera_asignacion as ISO "YYYY-MM-DD"
+        const date = props.fecha_primera_asignacion || "unknown";
+
         const canal = props.canal || "Sin canal";
         const campana = props.campana || "Sin campaña";
         const isConverted = props.convertido === "true";
+        const ownerId = props.hubspot_owner_id || "sin_asignar";
 
-        const key = `${label}\x00${canal}\x00${campana}`;
+        const key = `${label}\x00${canal}\x00${campana}\x00${date}\x00${ownerId}`;
         const existing = map.get(key);
         if (existing) {
           existing.leads++;
@@ -263,8 +274,8 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
   const result: CrossDataRow[] = [];
   for (const [key, val] of map) {
-    const [categoria, canal, campana] = key.split("\x00");
-    result.push({ categoria, canal, campana, leads: val.leads, converted: val.converted });
+    const [categoria, canal, campana, date, ownerId] = key.split("\x00");
+    result.push({ categoria, canal, campana, date, ownerId, leads: val.leads, converted: val.converted });
   }
 
   const elapsed = Date.now() - start;

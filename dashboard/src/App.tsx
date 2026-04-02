@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import './index.css'
 import { ChatDrawer } from './components/ChatDrawer'
+import { DailyTimeline } from './components/DailyTimeline'
 
 interface CrossDataRow {
   categoria: string
   canal: string
   campana: string
+  date: string
   leads: number
   converted: number
 }
@@ -206,23 +208,49 @@ const FILTER_PRESETS: { mode: FilterMode; label: string; icon: string }[] = [
 // ══════════════════════════════════════════════════════════════
 // ── KPI Cards ───────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
-function KPICards({ data, settings }: { data: LeadsData; settings: Settings }) {
+
+const SHORT_MONTHS = [
+  'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+  'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+]
+function formatDateShort(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number)
+  return `${d} ${SHORT_MONTHS[m - 1]}`
+}
+function KPICards({ data, settings, selectedDate, crossData }: {
+  data: LeadsData; settings: Settings; selectedDate: string | null; crossData: CrossDataRow[]
+}) {
   const prev = data.previousPeriod
   const goal = computeGoalProgress(data, settings)
+
+  // When a day is selected, compute KPIs from crossData for that day
+  const dayData = useMemo(() => {
+    if (!selectedDate || !crossData.length) return null
+    const rows = crossData.filter(r => r.date === selectedDate)
+    const total = rows.reduce((s, r) => s + r.leads, 0)
+    const converted = rows.reduce((s, r) => s + r.converted, 0)
+    const conversionRate = total > 0 ? Number(((converted / total) * 100).toFixed(2)) : 0
+    return { total, converted, conversionRate }
+  }, [selectedDate, crossData])
+
+  const displayTotal = dayData?.total ?? data.total
+  const displayConverted = dayData?.converted ?? data.converted
+  const displayRate = dayData?.conversionRate ?? data.conversionRate
+  const showDeltas = !selectedDate // Hide deltas when filtering to a single day
 
   return (
     <div className="kpi-grid">
       {/* Total Leads */}
       <div className="kpi-card">
-        <div className="kpi-label">Total Leads</div>
-        <div className="kpi-value">{fmt(data.total)}</div>
-        {prev && (
+        <div className="kpi-label">Total Leads{selectedDate ? ` — ${formatDateShort(selectedDate)}` : ''}</div>
+        <div className="kpi-value">{fmt(displayTotal)}</div>
+        {showDeltas && prev && (
           <div className={`kpi-delta ${prev.deltaTotal >= 0 ? 'positive' : 'negative'}`}>
             <span className="arrow">{prev.deltaTotal >= 0 ? '▲' : '▼'}</span>
             {Math.abs(prev.deltaTotal).toFixed(1)}% vs anterior
           </div>
         )}
-        {settings.goalLeads > 0 && (
+        {!selectedDate && settings.goalLeads > 0 && (
           <div className="kpi-goal">
             <div className="kpi-goal-track">
               <div
@@ -246,8 +274,8 @@ function KPICards({ data, settings }: { data: LeadsData; settings: Settings }) {
       {/* Convertidos */}
       <div className="kpi-card">
         <div className="kpi-label">Convertidos</div>
-        <div className="kpi-value">{fmt(data.converted)}</div>
-        {prev && (
+        <div className="kpi-value">{fmt(displayConverted)}</div>
+        {showDeltas && prev && (
           <div className={`kpi-delta ${data.converted >= prev.converted ? 'positive' : 'negative'}`}>
             <span className="arrow">{data.converted >= prev.converted ? '▲' : '▼'}</span>
             {fmt(prev.converted)} anterior
@@ -258,8 +286,8 @@ function KPICards({ data, settings }: { data: LeadsData; settings: Settings }) {
       {/* Tasa de Conversión */}
       <div className="kpi-card">
         <div className="kpi-label">Tasa de Conversión</div>
-        <div className="kpi-value">{fmtPct(data.conversionRate)}</div>
-        {prev && (
+        <div className="kpi-value">{fmtPct(displayRate)}</div>
+        {showDeltas && prev && (
           <div className={`kpi-delta ${prev.deltaConversion >= 0 ? 'positive' : 'negative'}`}>
             <span className="arrow">{prev.deltaConversion >= 0 ? '▲' : '▼'}</span>
             {Math.abs(prev.deltaConversion).toFixed(2)}pp
@@ -267,8 +295,8 @@ function KPICards({ data, settings }: { data: LeadsData; settings: Settings }) {
         )}
       </div>
 
-      {/* Periodo Anterior */}
-      {prev && (
+      {/* Periodo Anterior — only shown when NOT filtering by day */}
+      {!selectedDate && prev && (
         <div className="kpi-card">
           <div className="kpi-label">Leads Periodo Anterior</div>
           <div className="kpi-value">{fmt(prev.total)}</div>
@@ -297,9 +325,10 @@ const CANAL_DISPLAY: Record<string, string> = {
   'BBDD': 'BBDD',
 }
 
-function InteractiveDataSection({ data, crossData }: {
+function InteractiveDataSection({ data, crossData, selectedDate }: {
   data: LeadsData
   crossData: CrossDataRow[]
+  selectedDate: string | null
 }) {
   const [selectedCat, setSelectedCatRaw] = useState<string | null>(null)
   const [selectedCanal, setSelectedCanal] = useState<string | null>(null)
@@ -319,8 +348,8 @@ function InteractiveDataSection({ data, crossData }: {
   const crossDataReady = crossData.length > 0
 
   const canalsToShow = useMemo(() => {
-    // Fallback to server-side data while crossData loads
-    if (!crossDataReady || !selectedCat) {
+    // Fallback to server-side data while crossData loads (and no date/cat filter)
+    if (!crossDataReady || (!selectedCat && !selectedDate)) {
       return data.byCanal.map(c => ({
         value: c.name,
         displayName: c.displayName,
@@ -332,7 +361,10 @@ function InteractiveDataSection({ data, crossData }: {
     }
 
     // Filter + aggregate from crossData
-    const rows = crossData.filter(r => r.categoria === selectedCat)
+    let rows = crossData
+    if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
+    if (selectedCat) rows = rows.filter(r => r.categoria === selectedCat)
+
     const map = new Map<string, { leads: number; converted: number }>()
     for (const r of rows) {
       const existing = map.get(r.canal)
@@ -356,11 +388,11 @@ function InteractiveDataSection({ data, crossData }: {
       }))
       .filter(c => c.count > 0)
       .sort((a, b) => b.count - a.count)
-  }, [crossData, crossDataReady, selectedCat, data.byCanal])
+  }, [crossData, crossDataReady, selectedCat, selectedDate, data.byCanal])
 
   const campanasToShow = useMemo(() => {
     // Fallback to server-side data while crossData loads
-    if (!crossDataReady || (!selectedCat && !selectedCanal)) {
+    if (!crossDataReady || (!selectedCat && !selectedCanal && !selectedDate)) {
       return data.topCampanas.map(c => ({
         value: c.name,
         displayName: c.name,
@@ -373,6 +405,7 @@ function InteractiveDataSection({ data, crossData }: {
 
     // Filter + aggregate from crossData
     let rows = crossData
+    if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
     if (selectedCat) rows = rows.filter(r => r.categoria === selectedCat)
     if (selectedCanal) rows = rows.filter(r => r.canal === selectedCanal)
 
@@ -398,9 +431,40 @@ function InteractiveDataSection({ data, crossData }: {
       }))
       .filter(c => c.count > 0)
       .sort((a, b) => b.count - a.count)
-  }, [crossData, crossDataReady, selectedCat, selectedCanal, data.topCampanas])
+  }, [crossData, crossDataReady, selectedCat, selectedCanal, selectedDate, data.topCampanas])
 
   const maxCanalCount = Math.max(...canalsToShow.map(c => c.count), 1)
+
+  // ── Categorías — recalculate when date is selected ─────────
+  const categoriasToShow = useMemo(() => {
+    if (!selectedDate || !crossDataReady) return data.byCategoria
+
+    const rows = crossData.filter(r => r.date === selectedDate)
+    const catMap = new Map<string, { count: number; converted: number }>()
+    for (const r of rows) {
+      const existing = catMap.get(r.categoria)
+      if (existing) {
+        existing.count += r.leads
+        existing.converted += r.converted
+      } else {
+        catMap.set(r.categoria, { count: r.leads, converted: r.converted })
+      }
+    }
+
+    const dayTotal = rows.reduce((s, r) => s + r.leads, 0)
+    return ['Pago', 'Organico', 'Outbound', 'Sin clasificar']
+      .map(name => {
+        const v = catMap.get(name) || { count: 0, converted: 0 }
+        return {
+          name,
+          count: v.count,
+          converted: v.converted,
+          rate: v.count > 0 ? Number(((v.converted / v.count) * 100).toFixed(2)) : 0,
+          pct: dayTotal > 0 ? Number(((v.count / dayTotal) * 100).toFixed(1)) : 0,
+        }
+      })
+      .filter(c => c.count > 0)
+  }, [selectedDate, crossData, crossDataReady, data.byCategoria])
 
   // ── Filter state helpers ───────────────────────────────────
   const hasAnyFilter = !!selectedCat || !!selectedCanal
@@ -427,7 +491,7 @@ function InteractiveDataSection({ data, crossData }: {
           )}
         </div>
         <div className="composition-grid">
-          {data.byCategoria.map(cat => (
+          {categoriasToShow.map(cat => (
             <div
               key={cat.name}
               className={`composition-item clickable ${selectedCat === cat.name ? 'active' : ''} ${selectedCat && selectedCat !== cat.name ? 'dimmed' : ''}`}
@@ -757,6 +821,7 @@ export default function App() {
   const [crossData, setCrossData] = useState<CrossDataRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   // Load vigencias on mount, then apply per-month overrides
   useEffect(() => {
@@ -821,6 +886,7 @@ export default function App() {
     }
 
     setError(null)
+    setSelectedDate(null) // Reset day selection when fetching new period
     try {
       const result = await fetchApi<LeadsData>(
         `/leads?from=${from}&to=${to}`,
@@ -888,6 +954,7 @@ export default function App() {
 
   const handleFilterChange = (mode: FilterMode) => {
     setFilterMode(mode)
+    setSelectedDate(null)  // Reset day selection when period changes
   }
 
   const handleSaveSettings = (s: Settings) => {
@@ -1012,9 +1079,17 @@ export default function App() {
         {/* Dashboard Content */}
         {data && !loading && (
           <>
-            <KPICards data={data} settings={settings} />
+            <KPICards data={data} settings={settings} selectedDate={selectedDate} crossData={crossData} />
 
-            <InteractiveDataSection data={data} crossData={crossData} />
+            <DailyTimeline
+              crossData={crossData}
+              from={data.period.from}
+              to={data.period.to}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+            />
+
+            <InteractiveDataSection data={data} crossData={crossData} selectedDate={selectedDate} />
           </>
         )}
       </div>
