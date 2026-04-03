@@ -242,16 +242,22 @@ function computeSmartCampana(props: ContactProps): string {
   return campana || "Sin campaña";
 }
 
-/** Normalize HubSpot timestamp to YYYY-MM-DD in America/Buenos_Aires. */
-function normalizeHubSpotDate(value?: string): string {
-  if (!value) return "sin_fecha";
-  const ms = Number(value);
-  if (isNaN(ms)) return "sin_fecha";
-  try {
-    return new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
-  } catch {
-    return new Date(ms).toISOString().split("T")[0];
+/** Normalize HubSpot date values to YYYY-MM-DD in America/Buenos_Aires. */
+function normalizeHubSpotDate(raw?: string): string {
+  if (!raw) return "unknown";
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // Epoch milliseconds (all digits, 10-13 chars)
+  if (/^\d{10,13}$/.test(raw)) {
+    const d = new Date(parseInt(raw, 10));
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
   }
+  // ISO datetime (contains T)
+  if (raw.includes("T")) {
+    const d = new Date(raw);
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
+  }
+  return raw;
 }
 
 // ─── Paginated Contact Fetch for Cross-Data ─────────────────
