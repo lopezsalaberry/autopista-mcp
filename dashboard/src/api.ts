@@ -35,6 +35,10 @@ export async function fetchApi<T>(path: string, signal?: AbortSignal): Promise<T
 
   try {
     const res = await fetch(`${API_BASE}${path}`, { signal: combinedSignal, headers })
+    if (res.status === 401) {
+      window.dispatchEvent(new Event('auth:expired'))
+      throw new Error('Sesión expirada')
+    }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body?.error?.message || `API error: ${res.status}`)
@@ -61,6 +65,10 @@ export async function fetchApiMutate<T>(
     body: options.body ? JSON.stringify(options.body) : undefined,
     signal: options.signal,
   })
+  if (res.status === 401) {
+    window.dispatchEvent(new Event('auth:expired'))
+    throw new Error('Sesión expirada')
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body?.error?.message || `API error: ${res.status}`)

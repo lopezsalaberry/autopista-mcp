@@ -1,14 +1,29 @@
 /**
  * useDashboardData — Data fetching hook for the Growth Dashboard.
  *
- * Manages: leads data, cross-data, venta online KPI, loading/error state,
- * client-side cache, request cancellation via AbortController, and day selection.
+ * Uses the unified /data endpoint (single HTTP roundtrip) which returns
+ * leads KPIs, cross-data, venta online, and response metadata.
+ *
+ * Manages: data state, client-side cache, request cancellation via
+ * AbortController, stale-while-revalidate UX, and day selection.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { CrossDataRow, LeadsData } from '../types'
 import { fetchApi } from '../api'
 import { isoDate } from '../helpers'
+
+/** Unified response shape from GET /api/dashboard/data */
+interface UnifiedResponse extends LeadsData {
+  crossData: CrossDataRow[]
+  ventaOnline: number
+  _meta: {
+    fetchedAt: string
+    version: string
+    stale?: boolean
+    staleSince?: string | null
+  }
+}
 
 interface DashboardDataState {
   data: LeadsData | null
@@ -17,6 +32,7 @@ interface DashboardDataState {
   loading: boolean
   error: string | null
   selectedDate: string | null
+  staleInfo: { stale: boolean; fetchedAt: string | null }
   setSelectedDate: (date: string | null) => void
   fetchData: (from: string, to: string, previousFrom?: string, previousTo?: string) => void
 }
@@ -28,9 +44,10 @@ export function useDashboardData(): DashboardDataState {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [staleInfo, setStaleInfo] = useState<{ stale: boolean; fetchedAt: string | null }>({ stale: false, fetchedAt: null })
 
   // Client-side cache + abort controller for request cancellation
-  const clientCache = useRef(new Map<string, { data: LeadsData; crossData?: CrossDataRow[]; ventaOnline?: number; ts: number }>())
+  const clientCache = useRef(new Map<string, { data: LeadsData; crossData: CrossDataRow[]; ventaOnline: number; ts: number }>())
   const abortRef = useRef<AbortController | null>(null)
 
   // Cleanup on unmount — cancel in-flight request
@@ -52,18 +69,19 @@ export function useDashboardData(): DashboardDataState {
     // Serve cache immediately if fresh enough
     if (cached && Date.now() - cached.ts < STALE_MS) {
       setData(cached.data)
-      setCrossData(cached.crossData || [])
-      setVentaOnline(cached.ventaOnline ?? 0)
+      setCrossData(cached.crossData)
+      setVentaOnline(cached.ventaOnline)
       setLoading(false)
       setError(null)
+      setStaleInfo({ stale: false, fetchedAt: null })
       return
     }
 
     // Show stale data while revalidating (no spinner if we have stale data)
     if (cached) {
       setData(cached.data)
-      setCrossData(cached.crossData || [])
-      setVentaOnline(cached.ventaOnline ?? 0)
+      setCrossData(cached.crossData)
+      setVentaOnline(cached.ventaOnline)
     } else {
       // Clear previous period's data to avoid showing misleading stale data
       setData(null)
@@ -73,35 +91,24 @@ export function useDashboardData(): DashboardDataState {
     }
 
     setError(null)
+    setStaleInfo({ stale: false, fetchedAt: null })
     setSelectedDate(null) // Reset day selection when fetching new period
     try {
       const signal = abortRef.current.signal
 
-      // Build leads URL — include previous period dates when available (vigencia mode)
-      let leadsUrl = `/leads?from=${from}&to=${to}`
+      // Build unified URL
+      let url = `/data?from=${from}&to=${to}`
       if (previousFrom && previousTo) {
-        leadsUrl += `&previousFrom=${previousFrom}&previousTo=${previousTo}`
+        url += `&previousFrom=${previousFrom}&previousTo=${previousTo}`
       }
 
-      // Fetch leads + cross-data + venta-online in parallel for instant full render
-      const [result, crossResult, ventaResult] = await Promise.all([
-        fetchApi<LeadsData>(leadsUrl, signal),
-        fetchApi<CrossDataRow[]>(`/cross-data?from=${from}&to=${to}`, signal)
-          .catch((err: unknown) => {
-            if (err instanceof DOMException && err.name === 'AbortError') throw err
-            // CrossData failure is non-critical — leads data still renders, charts degrade gracefully
-            return [] as CrossDataRow[]
-          }),
-        fetchApi<{ total: number }>(`/venta-online?from=${from}&to=${to}`, signal)
-          .catch((err: unknown) => {
-            if (err instanceof DOMException && err.name === 'AbortError') throw err
-            // Venta Online failure is non-critical
-            return { total: 0 }
-          }),
-      ])
+      // Single request replaces 3 separate fetches
+      const result = await fetchApi<UnifiedResponse>(url, signal)
 
-      const voTotal = ventaResult.total
-      clientCache.current.set(key, { data: result, crossData: crossResult, ventaOnline: voTotal, ts: Date.now() })
+      // Extract LeadsData shape (everything except crossData, ventaOnline, _meta)
+      const { crossData: cd, ventaOnline: vo, _meta, ...leadsData } = result
+
+      clientCache.current.set(key, { data: leadsData, crossData: cd, ventaOnline: vo, ts: Date.now() })
       // Evict oldest if cache exceeds 20 entries
       if (clientCache.current.size > 20) {
         let oldestKey = '', oldestTs = Infinity
@@ -110,9 +117,16 @@ export function useDashboardData(): DashboardDataState {
         })
         if (oldestKey) clientCache.current.delete(oldestKey)
       }
-      setData(result)
-      setCrossData(crossResult)
-      setVentaOnline(voTotal)
+      setData(leadsData)
+      setCrossData(cd)
+      setVentaOnline(vo)
+
+      // Surface stale data metadata from server
+      if (_meta?.stale) {
+        setStaleInfo({ stale: true, fetchedAt: _meta.staleSince ?? _meta.fetchedAt })
+      } else {
+        setStaleInfo({ stale: false, fetchedAt: null })
+      }
     } catch (err: unknown) {
       // Silently ignore aborted requests
       if (err instanceof DOMException && err.name === 'AbortError') return
@@ -125,5 +139,5 @@ export function useDashboardData(): DashboardDataState {
     }
   }, [])
 
-  return { data, crossData, ventaOnline, loading, error, selectedDate, setSelectedDate, fetchData }
+  return { data, crossData, ventaOnline, loading, error, selectedDate, staleInfo, setSelectedDate, fetchData }
 }

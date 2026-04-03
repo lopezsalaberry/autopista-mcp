@@ -2,9 +2,11 @@
  * Dashboard API router.
  *
  * Endpoints:
+ * - GET /api/dashboard/data (unified — combines leads KPIs, cross-data, and venta online)
  * - GET /api/dashboard/vigencias?year=2026&startDay=21&endDay=22
- * - GET /api/dashboard/leads?from=YYYY-MM-DD&to=YYYY-MM-DD
- * - GET /api/dashboard/cross-data?from=YYYY-MM-DD&to=YYYY-MM-DD
+ * - GET /api/dashboard/leads?from=YYYY-MM-DD&to=YYYY-MM-DD (deprecated — use /data)
+ * - GET /api/dashboard/cross-data?from=YYYY-MM-DD&to=YYYY-MM-DD (deprecated — use /data)
+ * - GET /api/dashboard/venta-online?from=YYYY-MM-DD&to=YYYY-MM-DD (deprecated — use /data)
  * - GET /api/dashboard/breakdown?from=&to=&dimension=
  * - GET /api/dashboard/owners (HubSpot owner name resolution)
  * - GET /api/dashboard/config (current dashboard configuration)
@@ -102,9 +104,9 @@ router.get("/previous-period", (req: Request, res: Response) => {
   res.json({ current: { from, to }, previous: prev });
 });
 
-// ─── GET /leads ──────────────────────────────────────────────
+// ─── GET /leads (deprecated — kept for backwards compat) ─────
 /** Smart TTL: historical periods cache longer since data doesn't change. */
-function computeCacheTTL(from: string, to: string): number {
+export function computeCacheTTL(from: string, to: string): number {
   const today = new Date().toISOString().split("T")[0];
   if (to < today) return 3600;  // Historical: 1 hour
   if (from === to) return 120;  // "Hoy": 2 minutes
@@ -175,6 +177,15 @@ router.get("/leads", async (req: Request, res: Response) => {
 
     res.json(data);
   } catch (err: unknown) {
+    // Stale-on-error fallback: serve expired cache data if available
+    const stale = dashboardCache.get(cacheKey, { allowStale: true });
+    if (stale) {
+      const fetchedAt = dashboardCache.getFetchedAt(cacheKey);
+      logger.warn({ err, from, to, fetchedAt }, "Serving stale leads data (HubSpot error)");
+      res.set("X-Data-Stale", "true");
+      res.json({ ...stale as Record<string, unknown>, _stale: true, _fetchedAt: fetchedAt ? new Date(fetchedAt).toISOString() : null });
+      return;
+    }
     logger.error({ err, from, to }, "Error fetching leads data");
     res.status(500).json({
       error: {
@@ -283,6 +294,15 @@ router.get("/cross-data", async (req: Request, res: Response) => {
     dashboardCache.set(cacheKey, data, computeCacheTTL(from, to));
     res.json(data);
   } catch (err: unknown) {
+    // Stale-on-error fallback
+    const stale = dashboardCache.get(cacheKey, { allowStale: true });
+    if (stale) {
+      const fetchedAt = dashboardCache.getFetchedAt(cacheKey);
+      logger.warn({ err, from, to, fetchedAt }, "Serving stale cross-data (HubSpot error)");
+      res.set("X-Data-Stale", "true");
+      res.json(stale);
+      return;
+    }
     logger.error({ err, from, to }, "Error fetching cross data");
     res.status(500).json({
       error: {
@@ -467,7 +487,7 @@ router.get("/venta-online", async (req: Request, res: Response) => {
     return;
   }
 
-  const cacheKey = `venta-online:${from}:${to}`;
+  const cacheKey = dashboardCache.key("venta-online", { from, to });
   const cached = dashboardCache.get<{ total: number; period: { from: string; to: string } }>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -479,11 +499,149 @@ router.get("/venta-online", async (req: Request, res: Response) => {
     dashboardCache.set(cacheKey, data, computeCacheTTL(from, to));
     res.json(data);
   } catch (err: unknown) {
+    // Stale-on-error fallback
+    const stale = dashboardCache.get(cacheKey, { allowStale: true });
+    if (stale) {
+      const fetchedAt = dashboardCache.getFetchedAt(cacheKey);
+      logger.warn({ err, from, to, fetchedAt }, "Serving stale venta-online (HubSpot error)");
+      res.set("X-Data-Stale", "true");
+      res.json(stale);
+      return;
+    }
     logger.error({ err, from, to }, "Error fetching venta online");
     res.status(500).json({
       error: {
         code: "INTERNAL_ERROR",
         message: err instanceof Error ? err.message : "Unknown error",
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+});
+
+// ─── GET /data (unified endpoint) ────────────────────────────
+/**
+ * Unified dashboard data endpoint. Returns KPI totals, cross-data, and
+ * venta online in a single response. This replaces 3 separate frontend
+ * requests with 1.
+ *
+ * KPI totals come from lightweight HubSpot count queries (3-6 calls).
+ * Cross-data comes from paginated contact fetch with smart attribution.
+ * Venta online comes from a deal search query.
+ *
+ * All three run in parallel for minimum latency.
+ */
+router.get("/data", async (req: Request, res: Response) => {
+  const { from, to } = req.query as { from?: string; to?: string };
+  const previousFrom = req.query.previousFrom as string | undefined;
+  const previousTo = req.query.previousTo as string | undefined;
+
+  if (!from || !to) {
+    res.status(400).json({
+      error: { code: "INVALID_PARAMS", message: "from and to are required (YYYY-MM-DD)", timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(from) || !dateRe.test(to)) {
+    res.status(400).json({
+      error: { code: "INVALID_DATE_FORMAT", message: "Dates must be in YYYY-MM-DD format", timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  if ((previousFrom && !dateRe.test(previousFrom)) || (previousTo && !dateRe.test(previousTo))) {
+    res.status(400).json({
+      error: { code: "INVALID_DATE_FORMAT", message: "previousFrom/previousTo must be in YYYY-MM-DD format", timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  const MAX_RANGE_DAYS = 400;
+  const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000;
+  if (rangeDays > MAX_RANGE_DAYS || rangeDays < 0) {
+    res.status(400).json({
+      error: { code: "RANGE_TOO_LARGE", message: `Date range cannot exceed ${MAX_RANGE_DAYS} days`, timestamp: new Date().toISOString() },
+    });
+    return;
+  }
+
+  const cacheKey = dashboardCache.key("unified-data", {
+    from, to,
+    ...(previousFrom && previousTo ? { previousFrom, previousTo } : {}),
+  });
+  const cached = dashboardCache.get(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+
+  // Allow long-running request for large date ranges
+  req.setTimeout(120_000);
+
+  try {
+    // Resolve previous period
+    const prev = (previousFrom && previousTo)
+      ? { from: previousFrom, to: previousTo }
+      : getPreviousPeriod(from, to);
+
+    const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+    const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
+
+    // Fire all three data sources in parallel
+    const [leadsData, crossData, ventaOnlineData] = await Promise.all([
+      fetchLeadsData(from, to, prev.from, prev.to),
+      fetchCrossData(fromMs, toMs),
+      fetchVentaOnline(from, to).catch((err: unknown) => {
+        // Venta online is non-critical — degrade gracefully
+        logger.warn({ err }, "Venta online fetch failed (non-critical)");
+        return { total: 0, period: { from, to } };
+      }),
+    ]);
+
+    const result = {
+      // Authoritative KPI totals (from HubSpot aggregate counts)
+      ...leadsData,
+      // Smart-attributed analytical data
+      crossData,
+      // Deal-based KPI
+      ventaOnline: ventaOnlineData.total,
+      // Response metadata
+      _meta: {
+        fetchedAt: new Date().toISOString(),
+        version: "v1",
+      },
+    };
+
+    dashboardCache.set(cacheKey, result, computeCacheTTL(from, to));
+    res.json(result);
+  } catch (err: unknown) {
+    // Stale-on-error fallback
+    const stale = dashboardCache.get(cacheKey, { allowStale: true });
+    if (stale) {
+      const fetchedAt = dashboardCache.getFetchedAt(cacheKey);
+      logger.warn({ err, from, to, fetchedAt }, "Serving stale unified data (HubSpot error)");
+      res.set("X-Data-Stale", "true");
+      const staleRecord = stale as Record<string, unknown>;
+      const existingMeta = (staleRecord._meta && typeof staleRecord._meta === "object")
+        ? staleRecord._meta as Record<string, unknown>
+        : {};
+      res.json({
+        ...staleRecord,
+        _meta: {
+          ...existingMeta,
+          stale: true,
+          staleSince: fetchedAt ? new Date(fetchedAt).toISOString() : null,
+        },
+      });
+      return;
+    }
+    logger.error({ err, from, to }, "Error fetching unified dashboard data");
+    res.status(500).json({
+      error: {
+        code: "HUBSPOT_ERROR",
+        message: err instanceof Error ? err.message : "Failed to fetch dashboard data",
         timestamp: new Date().toISOString(),
       },
     });

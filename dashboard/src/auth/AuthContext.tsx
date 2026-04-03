@@ -134,6 +134,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearStoredToken()
   }, [])
 
+  // Listen for 401 responses from api.ts — auto-logout on expired token
+  useEffect(() => {
+    const handler = () => logout()
+    window.addEventListener('auth:expired', handler)
+    return () => window.removeEventListener('auth:expired', handler)
+  }, [logout])
+
   return (
     <AuthContext.Provider value={{
       user,

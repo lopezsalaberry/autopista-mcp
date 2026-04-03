@@ -83,7 +83,9 @@ export interface PeriodComparison {
 }
 
 // ─── Concurrency Limiter ─────────────────────────────────────
-const MAX_CONCURRENT = 4;
+// 6 slots: 3 KPI counts + cross-data sequential + venta-online + 1 headroom.
+// Shared across all requests — matches the real constraint (single HubSpot API key).
+const MAX_CONCURRENT = 6;
 let inflight = 0;
 const queue: Array<() => void> = [];
 
@@ -162,6 +164,29 @@ async function hubspotSearch(
   }
 }
 
+// ─── Date Normalization ──────────────────────────────────────
+/**
+ * Normalize HubSpot date values to YYYY-MM-DD.
+ * HubSpot may return dates as ISO strings, epoch ms strings, or YYYY-MM-DD.
+ * Converts to Argentina timezone for consistent daily bucketing.
+ */
+function normalizeHubSpotDate(raw: string | undefined): string {
+  if (!raw) return "unknown";
+  // Already YYYY-MM-DD (no T, 10 chars, has dashes)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // Epoch milliseconds (all digits, 10-13 chars)
+  if (/^\d{10,13}$/.test(raw)) {
+    const d = new Date(parseInt(raw, 10));
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
+  }
+  // ISO datetime (contains T) — extract date in Argentina TZ
+  if (raw.includes("T")) {
+    const d = new Date(raw);
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
+  }
+  return raw;
+}
+
 // ─── Base Filter Builder ─────────────────────────────────────
 function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown>> {
   return [
@@ -216,33 +241,38 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
         paging?: { next?: { after?: string } };
       }
       let data: HubSpotPagedResponse | undefined;
-      for (let attempt = 0; attempt <= 5; attempt++) {
-        const res = await fetch(`${API}/crm/v3/objects/contacts/search`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.HUBSPOT_ACCESS_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(15_000), // 15s per request
-        });
+      await acquireSlot();
+      try {
+        for (let attempt = 0; attempt <= 5; attempt++) {
+          const res = await fetch(`${API}/crm/v3/objects/contacts/search`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.HUBSPOT_ACCESS_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15_000), // 15s per request
+          });
 
-        if (res.status === 429 && attempt < 5) {
-          const retryAfter = parseInt(res.headers.get("retry-after") || "3", 10);
-          const delay = retryAfter * 1000 * (attempt + 1);
-          logger.warn({ attempt, delay, categoria: label }, "CrossData 429 — retrying");
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
+          if (res.status === 429 && attempt < 5) {
+            const retryAfter = parseInt(res.headers.get("retry-after") || "3", 10);
+            const delay = retryAfter * 1000 * (attempt + 1);
+            logger.warn({ attempt, delay, categoria: label }, "CrossData 429 — retrying");
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+
+          if (!res.ok) {
+            const errorBody = await res.text();
+            logger.error({ status: res.status, body: errorBody, categoria: label, page: catPages }, "CrossData page error");
+            throw new Error(`HubSpot API error: ${res.status}`);
+          }
+
+          data = await res.json() as HubSpotPagedResponse;
+          break;
         }
-
-        if (!res.ok) {
-          const errorBody = await res.text();
-          logger.error({ status: res.status, body: errorBody, categoria: label, page: catPages }, "CrossData page error");
-          throw new Error(`HubSpot API error: ${res.status}`);
-        }
-
-        data = await res.json() as HubSpotPagedResponse;
-        break;
+      } finally {
+        releaseSlot();
       }
 
       if (!data) throw new Error("CrossData: max retries exceeded");
@@ -254,8 +284,8 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
         const edad = parseInt(props.edad || "0", 10);
         if (edad > MAX_AGE) continue;
 
-        // Bucket by date — HubSpot returns fecha_primera_asignacion as ISO "YYYY-MM-DD"
-        const date = props.fecha_primera_asignacion || "unknown";
+        // Bucket by date — normalize to YYYY-MM-DD in Argentina timezone
+        const date = normalizeHubSpotDate(props.fecha_primera_asignacion);
         const isConverted = props.convertido === "true";
         const ownerId = props.hubspot_owner_id || "sin_asignar";
 

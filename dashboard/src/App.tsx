@@ -76,7 +76,7 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
 
   // Data fetching hook — owns loading, error, cache, abort
-  const { data, crossData, ventaOnline, loading, error, selectedDate, setSelectedDate, fetchData } = useDashboardData()
+  const { data, crossData, ventaOnline, loading, error, selectedDate, staleInfo, setSelectedDate, fetchData } = useDashboardData()
 
   // Sync auth token into the API module
   useEffect(() => {
@@ -230,8 +230,24 @@ export default function App() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {data && !loading && (
-            <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', opacity: 0.8 }}>
               {formatDateShort(data.period.from)} — {formatDateShort(data.period.to)}{data.period.to.startsWith(String(selectedYear)) ? '' : `, ${data.period.to.slice(0, 4)}`}
+              {staleInfo.stale && (
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    background: 'rgba(255, 193, 7, 0.2)',
+                    color: '#ffc107',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                  }}
+                  title={staleInfo.fetchedAt ? `Datos de ${new Date(staleInfo.fetchedAt).toLocaleTimeString('es-AR')}` : 'Datos posiblemente desactualizados'}
+                  onClick={() => fetchData(data.period.from, data.period.to)}
+                >
+                  ⚠️ datos en caché
+                </span>
+              )}
             </div>
           )}
           <button className="header-btn" onClick={() => navigate('settings')} title="Configuración">
