@@ -556,6 +556,65 @@ export interface BreakdownResponse {
  * - With 1 parent filter, we drop owner NOT_IN to fit
  * - With 2 parent filters, we drop owner NOT_IN to fit
  */
+// ─── Venta Online (Deals) ───────────────────────────────────
+
+const ALTA_SOCIO_STAGE_ID = "1150847490";
+const PROMOTOR_DIRECTO_OWNER_ID = "82753680";
+
+export async function fetchVentaOnline(
+  from: string,
+  to: string,
+): Promise<{ total: number; period: { from: string; to: string } }> {
+  const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+  const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
+
+  await acquireSlot();
+  try {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const res = await fetch(`${API}/crm/v3/objects/deals/search`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          filterGroups: [{
+            filters: [
+              { propertyName: "dealstage", operator: "EQ", value: ALTA_SOCIO_STAGE_ID },
+              { propertyName: "hubspot_owner_id", operator: "EQ", value: PROMOTOR_DIRECTO_OWNER_ID },
+              { propertyName: "createdate", operator: "GTE", value: String(fromMs) },
+              { propertyName: "createdate", operator: "LTE", value: String(toMs) },
+            ],
+          }],
+          limit: 1,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (res.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = parseInt(res.headers.get("retry-after") || "2", 10);
+        await new Promise((r) => setTimeout(r, retryAfter * 1000 * (attempt + 1)));
+        continue;
+      }
+
+      if (!res.ok) {
+        const errorBody = await res.text();
+        console.error(`HubSpot deal search error: status=${res.status} body=${errorBody}`);
+        throw new Error(`HubSpot API error: ${res.status}`);
+      }
+
+      const data: { total: number } = await res.json();
+      return { total: data.total, period: { from, to } };
+    }
+
+    throw new Error("HubSpot deal search: max retries exceeded");
+  } finally {
+    releaseSlot();
+  }
+}
+
+// ─── UTM Breakdown (drill-down) ──────────────────────────────
+
 export async function fetchBreakdown(
   from: string,
   to: string,
