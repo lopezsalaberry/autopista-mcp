@@ -29,8 +29,11 @@ export interface CrossDataRow {
   categoria: string;
   canal: string;
   campana: string;
+  source: string;
+  date: string;
   leads: number;
   converted: number;
+  ownerId: string;
 }
 
 export interface LeadsResponse {
@@ -164,14 +167,111 @@ function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown
   ];
 }
 
+// ─── Smart Attribution (mirrors src/dashboard/smart-attribution.ts) ──
+
+const PAID_SOURCES = new Set(["PAID_SEARCH", "PAID_SOCIAL", "OTHER_CAMPAIGNS"]);
+const PAID_UTM_MEDIUMS = new Set(["cpc", "ppc", "display", "banner", "paid", "adsmovil", "video_paid"]);
+const OUTBOUND_CHANNELS = new Set(["OB WHATSAPP", "OB MAIL"]);
+const GENERIC_CAMPANAS = new Set(["cotizador online", "sin campaña", "sin campana", "(vacío)", "", "undefined", "null"]);
+const GENERIC_SOURCE_DATA = new Set(["INTEGRATION", "IMPORT", "Facebook", "CRM_UI", "BCC_TO_CRM", "MOBILE_ANDROID", "MOBILE_IOS", "Unknown keywords (SSL)"]);
+
+interface ContactProps { [key: string]: string | undefined }
+
+function computeSmartCategoria(props: ContactProps): string {
+  const canal = props.canal ?? "";
+  const source = props.hs_analytics_source ?? "";
+  const utmMedium = props.utm_medium?.toLowerCase() ?? "";
+  if (OUTBOUND_CHANNELS.has(canal)) return "Outbound";
+  if (PAID_SOURCES.has(source)) return "Pago";
+  if (canal === "REDES" || canal === "Comparadores") return "Pago";
+  if (utmMedium && PAID_UTM_MEDIUMS.has(utmMedium)) return "Pago";
+  return "Organico";
+}
+
+function computeSmartCanal(props: ContactProps): string {
+  const canal = props.canal ?? "";
+  if (canal) return canal;
+  const source = props.hs_analytics_source ?? "";
+  if (source === "PAID_SOCIAL") return "REDES";
+  if (["PAID_SEARCH", "ORGANIC_SEARCH", "DIRECT_TRAFFIC", "REFERRALS", "SOCIAL_MEDIA", "AI_REFERRALS"].includes(source)) return "WEB MEDICUS / COTI ONLINE";
+  return "Sin canal";
+}
+
+function computeSmartSource(props: ContactProps): string {
+  const source = props.hs_analytics_source ?? "";
+  const utmSource = props.utm_source?.toLowerCase() ?? "";
+  const utmMedium = props.utm_medium?.toLowerCase() ?? "";
+  const canal = props.canal ?? "";
+  switch (source) {
+    case "PAID_SEARCH": return "Google Ads";
+    case "PAID_SOCIAL":
+      if (utmSource === "instagram" || utmSource === "ig") return "Instagram Ads";
+      if (utmSource === "tiktok") return "TikTok Ads";
+      return "Meta Ads";
+    case "OTHER_CAMPAIGNS": return "Programática";
+    case "ORGANIC_SEARCH": return "Orgánico";
+    case "DIRECT_TRAFFIC": return "Directo";
+    case "SOCIAL_MEDIA": return "Social orgánico";
+    case "REFERRALS": case "AI_REFERRALS": return "Referral";
+  }
+  if (utmSource === "google" && utmMedium === "cpc") return "Google Ads";
+  if (utmMedium === "display") return "Programática";
+  if (utmSource === "meta" || utmSource === "ig" || utmSource === "instagram") return "Meta Ads";
+  switch (canal) {
+    case "REDES": return "Meta Ads";
+    case "Comparadores": return "Comparadores";
+    case "OB WHATSAPP": case "OB MAIL": return "Outbound";
+    case "REFERIDOS": case "Programa de Referidos": return "Referidos";
+    case "INTERFAZ GH": return "Interfaz GH";
+    case "Influencers": return "Influencers";
+    case "Eventos": return "Eventos";
+    default: return "Desconocido";
+  }
+}
+
+function computeSmartCampana(props: ContactProps): string {
+  const campana = props.campana?.trim() ?? "";
+  const utmCampaign = props.utm_campaign?.trim() ?? "";
+  const sourceData1 = props.hs_analytics_source_data_1?.trim() ?? "";
+  if (campana && !GENERIC_CAMPANAS.has(campana.toLowerCase())) return campana;
+  if (utmCampaign) return utmCampaign;
+  if (sourceData1 && !GENERIC_SOURCE_DATA.has(sourceData1)) {
+    if (/^\d{8,}$/.test(sourceData1)) return `Ads #${sourceData1}`;
+    return sourceData1;
+  }
+  return campana || "Sin campaña";
+}
+
+/** Normalize HubSpot date values to YYYY-MM-DD in America/Buenos_Aires. */
+function normalizeHubSpotDate(raw?: string): string {
+  if (!raw) return "unknown";
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // Epoch milliseconds (all digits, 10-13 chars)
+  if (/^\d{10,13}$/.test(raw)) {
+    const d = new Date(parseInt(raw, 10));
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
+  }
+  // ISO datetime (contains T)
+  if (raw.includes("T")) {
+    const d = new Date(raw);
+    return d.toLocaleDateString("en-CA", { timeZone: "America/Buenos_Aires" });
+  }
+  return raw;
+}
+
 // ─── Paginated Contact Fetch for Cross-Data ─────────────────
-const CROSS_DATA_PROPS = ["categoria", "canal", "campana", "convertido"];
+const CROSS_DATA_PROPS = [
+  "categoria", "canal", "campana", "convertido",
+  "fecha_primera_asignacion", "edad", "hubspot_owner_id",
+  "hs_analytics_source", "hs_analytics_source_data_1",
+  "utm_source", "utm_medium", "utm_campaign",
+];
 const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
 
 /**
  * Fetch ALL contacts split by category to stay under HubSpot's 10k pagination limit.
- * Groups into (categoria, canal, campana) → {leads, converted} for client-side filtering.
- * Includes a final pass for "Sin clasificar" (contacts with no categoria set).
+ * Groups into (categoria, canal, campana, source, date, ownerId) with smart attribution.
  */
 export async function fetchCrossData(fromMs: number, toMs: number): Promise<CrossDataRow[]> {
   const start = Date.now();
@@ -204,7 +304,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(15_000), // 15s per request
+          signal: AbortSignal.timeout(15_000),
         });
 
         if (res.status === 429 && attempt < 5) {
@@ -229,11 +329,22 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
       for (const contact of data.results || []) {
         const props = contact.properties || {};
-        const canal = props.canal || "Sin canal";
-        const campana = props.campana || "Sin campaña";
-        const isConverted = props.convertido === "true";
 
-        const key = `${label}\x00${canal}\x00${campana}`;
+        // Filter out over-age contacts
+        const edad = parseInt(props.edad || "0", 10);
+        if (edad > MAX_AGE) continue;
+
+        const date = normalizeHubSpotDate(props.fecha_primera_asignacion);
+        const isConverted = props.convertido === "true";
+        const ownerId = props.hubspot_owner_id || "sin_asignar";
+
+        // Smart Attribution v2
+        const smartCat = computeSmartCategoria(props);
+        const smartCanal = computeSmartCanal(props);
+        const smartCampana = computeSmartCampana(props);
+        const smartSource = computeSmartSource(props);
+
+        const key = `${smartCat}\x00${smartCanal}\x00${smartCampana}\x00${smartSource}\x00${date}\x00${ownerId}`;
         const existing = map.get(key);
         if (existing) {
           existing.leads++;
@@ -263,7 +374,6 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
   }
 
   // Pass 4: "Sin clasificar" — contacts where categoria is not set
-  // Uses NOT_HAS_PROPERTY (5 filters + 1 = 6, within limit)
   await paginateCategory("Sin clasificar", [
     { propertyName: "dato_gh", operator: "EQ", value: "true" },
     { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
@@ -275,8 +385,8 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
   const result: CrossDataRow[] = [];
   for (const [key, val] of map) {
-    const [categoria, canal, campana] = key.split("\x00");
-    result.push({ categoria, canal, campana, leads: val.leads, converted: val.converted });
+    const [categoria, canal, campana, source, date, ownerId] = key.split("\x00");
+    result.push({ categoria, canal, campana, source, date, ownerId, leads: val.leads, converted: val.converted });
   }
 
   const elapsed = Date.now() - start;
@@ -556,6 +666,65 @@ export interface BreakdownResponse {
  * - With 1 parent filter, we drop owner NOT_IN to fit
  * - With 2 parent filters, we drop owner NOT_IN to fit
  */
+// ─── Venta Online (Deals) ───────────────────────────────────
+
+const ALTA_SOCIO_STAGE_ID = "1150847490";
+const PROMOTOR_DIRECTO_OWNER_ID = "82753680";
+
+export async function fetchVentaOnline(
+  from: string,
+  to: string,
+): Promise<{ total: number; period: { from: string; to: string } }> {
+  const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+  const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
+
+  await acquireSlot();
+  try {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const res = await fetch(`${API}/crm/v3/objects/deals/search`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          filterGroups: [{
+            filters: [
+              { propertyName: "dealstage", operator: "EQ", value: ALTA_SOCIO_STAGE_ID },
+              { propertyName: "hubspot_owner_id", operator: "EQ", value: PROMOTOR_DIRECTO_OWNER_ID },
+              { propertyName: "createdate", operator: "GTE", value: String(fromMs) },
+              { propertyName: "createdate", operator: "LTE", value: String(toMs) },
+            ],
+          }],
+          limit: 1,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (res.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = parseInt(res.headers.get("retry-after") || "2", 10);
+        await new Promise((r) => setTimeout(r, retryAfter * 1000 * (attempt + 1)));
+        continue;
+      }
+
+      if (!res.ok) {
+        const errorBody = await res.text();
+        console.error(`HubSpot deal search error: status=${res.status} body=${errorBody}`);
+        throw new Error(`HubSpot API error: ${res.status}`);
+      }
+
+      const data: { total: number } = await res.json();
+      return { total: data.total, period: { from, to } };
+    }
+
+    throw new Error("HubSpot deal search: max retries exceeded");
+  } finally {
+    releaseSlot();
+  }
+}
+
+// ─── UTM Breakdown (drill-down) ──────────────────────────────
+
 export async function fetchBreakdown(
   from: string,
   to: string,
