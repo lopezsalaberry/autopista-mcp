@@ -5,7 +5,7 @@ describe('enrichZip', () => {
   it('resolves a known CABA zip code', () => {
     const result = enrichZip('1000')
     expect(result).not.toBeNull()
-    expect(result!.city).toBe('Buenos Aires')
+    expect(result!.city).toBe('Ciudad Autónoma de Buenos Aires')
     expect(result!.province).toBe('Ciudad Autónoma de Buenos Aires')
   })
 
@@ -38,9 +38,9 @@ describe('enrichZip', () => {
   it('resolves CPA format via numeric fallback', () => {
     // "CP1414" → extract "1414" → should find CABA
     const result = enrichZip('CP1414')
-    // 1414 should be in the CABA supplement range (1000-1499)
     expect(result).not.toBeNull()
     expect(result!.province).toBe('Ciudad Autónoma de Buenos Aires')
+    expect(result!.city).toBe('Ciudad Autónoma de Buenos Aires')
   })
 
   it('resolves Córdoba', () => {
@@ -53,7 +53,7 @@ describe('enrichZip', () => {
   it('handles whitespace in zip codes', () => {
     const result = enrichZip('  1000  ')
     expect(result).not.toBeNull()
-    expect(result!.city).toBe('Buenos Aires')
+    expect(result!.city).toBe('Ciudad Autónoma de Buenos Aires')
   })
 
   it('returns null for whitespace-only input', () => {
@@ -72,5 +72,17 @@ describe('enrichZip', () => {
     expect(result).not.toBeNull()
     expect(result!.city).toBe('Merlo')
     expect(result!.province).toBe('Buenos Aires')
+  })
+
+  it('falls back to zip range for unknown but valid zip codes', () => {
+    // 1599 is a valid GBA zip unlikely to be in GeoNames
+    const result = enrichZip('1599')
+    expect(result).not.toBeNull()
+    expect(result!.province).toBe('Buenos Aires')
+  })
+
+  it('returns null for text values stored as zip', () => {
+    expect(enrichZip('Adrogué')).toBeNull()
+    expect(enrichZip('Buenos Aires')).toBeNull()
   })
 })

@@ -18,8 +18,8 @@ export interface CrossDataRow {
 }
 
 export type SelectedGeo =
-  | { province: string }
-  | { province: string; city: string; zips: string[] }
+  | { provinces: string[] }
+  | { provinces: string[]; cities: string[]; zips: string[] }
   | null
 
 export interface LeadsData {

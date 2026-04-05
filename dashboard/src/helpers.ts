@@ -388,22 +388,76 @@ export function applySortFn<T>(items: T[], sort: SortState | null): T[] {
 
 import geoLookup from './data/geo-lookup.json'
 
-const geoData = geoLookup as Record<string, { city: string; province: string } | string>
+const geoData = geoLookup as Record<string, { city: string; province: string; partido?: string; zona?: string } | string>
 
-/** Enrich a zip code to city + province using the GeoNames static dataset.
- *  Dual-key lookup: tries raw value first (handles CPA format), falls back to 4-digit numeric. */
-export function enrichZip(zip: string): { city: string; province: string } | null {
+/** Argentine zip range → province mapping. Covers all 4-digit postal codes. */
+const ZIP_RANGES: [number, number, string][] = [
+  [1000, 1499, 'Ciudad Autónoma de Buenos Aires'],
+  [1500, 1999, 'Buenos Aires'],
+  [2000, 2999, 'Santa Fe'],
+  [3000, 3199, 'Entre Ríos'],
+  [3200, 3499, 'Corrientes'],
+  [3500, 3699, 'Chaco'],
+  [3700, 3999, 'Misiones'],
+  [4000, 4199, 'Tucumán'],
+  [4200, 4499, 'Salta'],
+  [4500, 4599, 'Jujuy'],
+  [4600, 4699, 'Santiago Del Estero'],
+  [4700, 4999, 'Catamarca'],
+  [5000, 5299, 'Córdoba'],
+  [5300, 5499, 'San Luis'],
+  [5500, 5699, 'Mendoza'],
+  [5700, 5899, 'San Juan'],
+  [5900, 5999, 'La Rioja'],
+  [6000, 6499, 'Buenos Aires'],
+  [6500, 6599, 'La Pampa'],
+  [6600, 6999, 'Buenos Aires'],
+  [7000, 7699, 'Buenos Aires'],
+  [7700, 7999, 'Buenos Aires'],
+  [8000, 8199, 'Neuquén'],
+  [8200, 8399, 'Río Negro'],
+  [8400, 8499, 'Río Negro'],
+  [8500, 8599, 'Chubut'],
+  [8600, 8999, 'Chubut'],
+  [9000, 9199, 'Santa Cruz'],
+  [9200, 9499, 'Santa Cruz'],
+  [9400, 9499, 'Tierra Del Fuego'],
+  [9500, 9599, 'Formosa'],
+]
+
+function provinceFromZipRange(numeric: number): string | null {
+  for (const [lo, hi, name] of ZIP_RANGES) {
+    if (numeric >= lo && numeric <= hi) return name
+  }
+  return null
+}
+
+export interface GeoResult {
+  city: string
+  province: string
+  partido?: string
+  zona?: string
+}
+
+/** Enrich a zip code to city + province + partido + zona using GeoNames dataset + zip range fallback.
+ *  Priority: raw key → 4-digit numeric key → zip range province (no city). */
+export function enrichZip(zip: string): GeoResult | null {
   if (!zip) return null
   const trimmed = zip.trim()
   if (!trimmed) return null
+  // Skip non-zip values (e.g., city names stored in zip field)
+  if (/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(trimmed)) return null
   // Try raw value first (handles CPA format like "C1425DKA" and "B2705")
   const raw = geoData[trimmed]
   if (raw && typeof raw === 'object') return raw
-  // Fall back to 4-digit numeric extraction
+  // Try 4-digit numeric extraction
   const numeric = trimmed.replace(/[^0-9]/g, '').slice(0, 4)
   if (numeric.length === 4) {
     const found = geoData[numeric]
     if (found && typeof found === 'object') return found
+    // Fallback: derive province from zip range (no specific city in dataset)
+    const province = provinceFromZipRange(parseInt(numeric, 10))
+    if (province) return { city: province, province }
   }
   return null
 }

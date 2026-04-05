@@ -15,7 +15,7 @@ import './index.css'
 import type { FilterMode, Page, SelectedGeo, Settings, Vigencia } from './types'
 import { fetchApi } from './api'
 import { setAuthToken } from './api'
-import { getDateRange, getVigenciaQuarterRange, getVigenciaYearRange, loadSettings, saveSettings, formatDateShort, vigenciaKey, resolveEffectiveGoal, resolveAggregateGoal, FILTER_PRESETS } from './helpers'
+import { getDateRange, getVigenciaQuarterRange, getVigenciaYearRange, loadSettings, saveSettings, formatDateShort, vigenciaKey, resolveEffectiveGoal, resolveAggregateGoal, enrichZip, FILTER_PRESETS } from './helpers'
 import { useDashboardData } from './hooks/useDashboardData'
 
 import { useAuth } from './auth/AuthContext'
@@ -79,7 +79,18 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
 
   // Data fetching hook — owns loading, error, cache, abort
-  const { data, crossData, ventaOnline, loading, error, selectedDate, staleInfo, setSelectedDate, fetchData } = useDashboardData()
+  const { data, crossData: rawCrossData, ventaOnline, loading, error, selectedDate, staleInfo, setSelectedDate, fetchData } = useDashboardData()
+
+  // Pre-filter crossData by geo selection (all downstream components see filtered data)
+  const crossData = useMemo(() => {
+    if (!selectedGeo) return rawCrossData
+    return rawCrossData.filter(r => {
+      const geo = enrichZip(r.zip)
+      if (!geo) return false
+      if ('cities' in selectedGeo) return selectedGeo.zips.includes(r.zip)
+      return selectedGeo.provinces.includes(geo.province)
+    })
+  }, [rawCrossData, selectedGeo])
 
   // Sync auth token into the API module
   useEffect(() => {
@@ -380,7 +391,7 @@ export default function App() {
 
             <ErrorBoundary message="Error en panel geográfico">
               <GeografiaPanel
-                crossData={crossData}
+                crossData={rawCrossData}
                 selectedGeo={selectedGeo}
                 onSelectGeo={setSelectedGeo}
                 expanded={geoExpanded}
@@ -407,7 +418,6 @@ export default function App() {
                 crossData={crossData}
                 selectedDate={selectedDate}
                 selectedVendedor={selectedVendedor}
-                selectedGeo={selectedGeo}
                 ownerNames={ownerNames}
                 distribution={resolvedGoal?.distribution}
                 effectiveGoal={resolvedGoal?.goal}
