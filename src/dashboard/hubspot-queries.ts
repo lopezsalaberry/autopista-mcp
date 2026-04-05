@@ -34,6 +34,7 @@ export interface CrossDataRow {
   leads: number;
   converted: number;
   ownerId: string;    // hubspot_owner_id ("sin_asignar" if unset)
+  zip: string;        // postal code for geographic enrichment
 }
 
 export interface LeadsResponse {
@@ -205,6 +206,7 @@ const CROSS_DATA_PROPS = [
   // Smart attribution signals (consumed server-side only, never sent to frontend)
   "hs_analytics_source", "hs_analytics_source_data_1",
   "utm_source", "utm_medium", "utm_campaign",
+  "zip",
 ];
 const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
 
@@ -288,6 +290,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
         const date = normalizeHubSpotDate(props.fecha_primera_asignacion);
         const isConverted = props.convertido === "true";
         const ownerId = props.hubspot_owner_id || "sin_asignar";
+        const zip = (props.zip || "").trim();
 
         // Smart Attribution v2: compute correct values from tracking signals
         const rawCanal = props.canal || "Sin canal";
@@ -299,7 +302,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
         recordReclassification(stats, label, rawCanal, rawCampana, smartCat, smartCanal, smartCampana);
 
-        const key = `${smartCat}\x00${smartCanal}\x00${smartCampana}\x00${smartSource}\x00${date}\x00${ownerId}`;
+        const key = `${smartCat}\x00${smartCanal}\x00${smartCampana}\x00${smartSource}\x00${date}\x00${ownerId}\x00${zip}`;
         const existing = map.get(key);
         if (existing) {
           existing.leads++;
@@ -341,8 +344,8 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 
   const result: CrossDataRow[] = [];
   for (const [key, val] of map) {
-    const [categoria, canal, campana, source, date, ownerId] = key.split("\x00");
-    result.push({ categoria, canal, campana, source, date, ownerId, leads: val.leads, converted: val.converted });
+    const [categoria, canal, campana, source, date, ownerId, zip] = key.split("\x00");
+    result.push({ categoria, canal, campana, source, date, ownerId, zip, leads: val.leads, converted: val.converted });
   }
 
   const elapsed = Date.now() - start;

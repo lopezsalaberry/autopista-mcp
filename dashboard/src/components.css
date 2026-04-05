@@ -767,6 +767,47 @@
   display: block;
 }
 
+/* ── GeografiaPanel ─────────────────────────────────────── */
+
+.geo-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.geo-filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.geo-select {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 160px;
+}
+
+.geo-select:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.geo-clear {
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }

@@ -14,7 +14,13 @@ export interface CrossDataRow {
   leads: number
   converted: number
   ownerId: string
+  zip: string
 }
+
+export type SelectedGeo =
+  | { province: string }
+  | { province: string; city: string; zips: string[] }
+  | null
 
 export interface LeadsData {
   period: { from: string; to: string }

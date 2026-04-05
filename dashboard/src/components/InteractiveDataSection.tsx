@@ -4,8 +4,8 @@
  */
 
 import { useState, useMemo, useCallback } from 'react'
-import type { CrossDataRow, GoalDistribution, LeadsData, SortState } from '../types'
-import { fmt, fmtPct, convClass, toggleSort, applySortFn, CANAL_COLORS, CAT_COLORS } from '../helpers'
+import type { CrossDataRow, GoalDistribution, LeadsData, SelectedGeo, SortState } from '../types'
+import { fmt, fmtPct, convClass, toggleSort, applySortFn, enrichZip, CANAL_COLORS, CAT_COLORS } from '../helpers'
 import { SortIcon } from './SortIcon'
 import { IconPieChart, IconRadio, IconMegaphone } from './Icons'
 
@@ -25,11 +25,12 @@ const CANAL_DISPLAY: Record<string, string> = {
   'BBDD': 'BBDD',
 }
 
-export function InteractiveDataSection({ data, crossData, selectedDate, selectedVendedor, ownerNames, distribution, effectiveGoal }: {
+export function InteractiveDataSection({ data, crossData, selectedDate, selectedVendedor, selectedGeo, ownerNames, distribution, effectiveGoal }: {
   data: LeadsData
   crossData: CrossDataRow[]
   selectedDate: string | null
   selectedVendedor: string | null
+  selectedGeo?: SelectedGeo
   ownerNames: Record<string, string>
   distribution?: { byCategoria?: GoalDistribution; byCanal?: GoalDistribution }
   effectiveGoal?: number
@@ -69,6 +70,14 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
     if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
     if (selectedCat) rows = rows.filter(r => r.categoria === selectedCat)
     if (selectedVendedor) rows = rows.filter(r => r.ownerId === selectedVendedor)
+    if (selectedGeo) {
+      rows = rows.filter(r => {
+        const geo = enrichZip(r.zip)
+        if (!geo) return false
+        if ('city' in selectedGeo) return selectedGeo.zips.includes(r.zip)
+        return geo.province === selectedGeo.province
+      })
+    }
 
     const map = new Map<string, { leads: number; converted: number }>()
     for (const r of rows) {
@@ -93,7 +102,7 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
       }))
       .filter(c => c.count > 0)
       .sort((a, b) => b.count - a.count)
-  }, [crossData, crossDataReady, selectedCat, selectedVendedor, selectedDate, data.byCanal])
+  }, [crossData, crossDataReady, selectedCat, selectedVendedor, selectedGeo, selectedDate, data.byCanal])
 
   const campanasToShow = useMemo(() => {
     // Fallback to server-side data only while cross-data is loading
@@ -113,6 +122,14 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
     if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
     if (selectedCat) rows = rows.filter(r => r.categoria === selectedCat)
     if (selectedVendedor) rows = rows.filter(r => r.ownerId === selectedVendedor)
+    if (selectedGeo) {
+      rows = rows.filter(r => {
+        const geo = enrichZip(r.zip)
+        if (!geo) return false
+        if ('city' in selectedGeo) return selectedGeo.zips.includes(r.zip)
+        return geo.province === selectedGeo.province
+      })
+    }
     if (selectedCanal) rows = rows.filter(r => r.canal === selectedCanal)
 
     const map = new Map<string, { leads: number; converted: number }>()
@@ -137,7 +154,7 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
       }))
       .filter(c => c.count > 0)
       .sort((a, b) => b.count - a.count)
-  }, [crossData, crossDataReady, selectedCat, selectedCanal, selectedVendedor, selectedDate, data.topCampanas])
+  }, [crossData, crossDataReady, selectedCat, selectedCanal, selectedVendedor, selectedGeo, selectedDate, data.topCampanas])
 
   const maxCanalCount = Math.max(...canalsToShow.map(c => c.count), 1)
 
@@ -149,6 +166,14 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
     let rows = crossData
     if (selectedDate) rows = rows.filter(r => r.date === selectedDate)
     if (selectedVendedor) rows = rows.filter(r => r.ownerId === selectedVendedor)
+    if (selectedGeo) {
+      rows = rows.filter(r => {
+        const geo = enrichZip(r.zip)
+        if (!geo) return false
+        if ('city' in selectedGeo) return selectedGeo.zips.includes(r.zip)
+        return geo.province === selectedGeo.province
+      })
+    }
 
     const catMap = new Map<string, { count: number; converted: number }>()
     for (const r of rows) {
@@ -174,7 +199,7 @@ export function InteractiveDataSection({ data, crossData, selectedDate, selected
         }
       })
       .filter(c => c.count > 0)
-  }, [selectedDate, selectedVendedor, crossData, crossDataReady, data.byCategoria])
+  }, [selectedDate, selectedVendedor, selectedGeo, crossData, crossDataReady, data.byCategoria])
 
   // ── Filter state helpers ───────────────────────────────────
   const hasAnyFilter = !!selectedCat || !!selectedCanal || !!selectedVendedor

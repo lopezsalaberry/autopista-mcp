@@ -12,7 +12,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import './index.css'
 
-import type { FilterMode, Page, Settings, Vigencia } from './types'
+import type { FilterMode, Page, SelectedGeo, Settings, Vigencia } from './types'
 import { fetchApi } from './api'
 import { setAuthToken } from './api'
 import { getDateRange, getVigenciaQuarterRange, getVigenciaYearRange, loadSettings, saveSettings, formatDateShort, vigenciaKey, resolveEffectiveGoal, resolveAggregateGoal, FILTER_PRESETS } from './helpers'
@@ -31,6 +31,7 @@ import { DailyTimeline } from './components/DailyTimeline'
 import { InteractiveDataSection } from './components/InteractiveDataSection'
 import { SettingsPage } from './components/SettingsPage'
 import { ChatDrawer } from './components/ChatDrawer'
+import { GeografiaPanel } from './components/GeografiaPanel'
 
 // ══════════════════════════════════════════════════════════════
 // ── MAIN APP ────────────────────────────────────────────────
@@ -73,6 +74,8 @@ export default function App() {
   const [ownerNames, setOwnerNames] = useState<Record<string, string>>({})
   const [ownerTeams, setOwnerTeams] = useState<Record<string, string>>({})
   const [vendedoresExpanded, setVendedoresExpanded] = useState(false)
+  const [selectedGeo, setSelectedGeo] = useState<SelectedGeo>(null)
+  const [geoExpanded, setGeoExpanded] = useState(false)
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear())
 
   // Data fetching hook — owns loading, error, cache, abort
@@ -375,6 +378,16 @@ export default function App() {
               />
             </ErrorBoundary>
 
+            <ErrorBoundary message="Error en panel geográfico">
+              <GeografiaPanel
+                crossData={crossData}
+                selectedGeo={selectedGeo}
+                onSelectGeo={setSelectedGeo}
+                expanded={geoExpanded}
+                onToggleExpanded={() => setGeoExpanded(v => !v)}
+              />
+            </ErrorBoundary>
+
             <ErrorBoundary message="Error en evolución diaria">
               <DailyTimeline
                 crossData={crossData}
@@ -394,6 +407,7 @@ export default function App() {
                 crossData={crossData}
                 selectedDate={selectedDate}
                 selectedVendedor={selectedVendedor}
+                selectedGeo={selectedGeo}
                 ownerNames={ownerNames}
                 distribution={resolvedGoal?.distribution}
                 effectiveGoal={resolvedGoal?.goal}

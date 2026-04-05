@@ -384,6 +384,30 @@ export function applySortFn<T>(items: T[], sort: SortState | null): T[] {
   })
 }
 
+// ── Geographic Enrichment ───────────────────────────────────
+
+import geoLookup from './data/geo-lookup.json'
+
+const geoData = geoLookup as Record<string, { city: string; province: string } | string>
+
+/** Enrich a zip code to city + province using the GeoNames static dataset.
+ *  Dual-key lookup: tries raw value first (handles CPA format), falls back to 4-digit numeric. */
+export function enrichZip(zip: string): { city: string; province: string } | null {
+  if (!zip) return null
+  const trimmed = zip.trim()
+  if (!trimmed) return null
+  // Try raw value first (handles CPA format like "C1425DKA" and "B2705")
+  const raw = geoData[trimmed]
+  if (raw && typeof raw === 'object') return raw
+  // Fall back to 4-digit numeric extraction
+  const numeric = trimmed.replace(/[^0-9]/g, '').slice(0, 4)
+  if (numeric.length === 4) {
+    const found = geoData[numeric]
+    if (found && typeof found === 'object') return found
+  }
+  return null
+}
+
 // ── Goal Progress ───────────────────────────────────────────
 
 /** Count calendar days between two ISO date strings, inclusive of both endpoints. */
