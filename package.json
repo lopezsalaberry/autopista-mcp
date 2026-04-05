@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "start:http": "TRANSPORT=http node dist/index.js",
     "dev": "tsc --watch",
+    "dev:dashboard": "npm run build && TRANSPORT=http node dist/index.js & cd dashboard && npx vite && kill %1",
     "inspect": "npx @modelcontextprotocol/inspector node dist/index.js"
   },
   "keywords": [
