@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { EXCLUDED_OWNER_IDS } from "../_lib/constants.js";
+import { getExcludedOwnerIds } from "../_lib/edge-config.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -11,7 +11,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  res.json({
-    excludedOwnerIds: EXCLUDED_OWNER_IDS,
-  });
+  const excludedOwnerIds = await getExcludedOwnerIds();
+  res.json({ excludedOwnerIds });
 }

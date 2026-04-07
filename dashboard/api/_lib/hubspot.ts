@@ -10,11 +10,11 @@
  */
 
 import {
-  EXCLUDED_OWNER_IDS,
   MAX_AGE,
   ALL_CANALES,
   CANAL_DISPLAY_NAMES,
 } from "./constants.js";
+import { getExcludedOwnerIds } from "./edge-config.js";
 
 const API = "https://api.hubapi.com";
 
@@ -157,13 +157,13 @@ async function hubspotSearch(
 }
 
 // ─── Base Filter Builder ─────────────────────────────────────
-function baseFilters(fromMs: number, toMs: number): Array<Record<string, unknown>> {
+function baseFilters(fromMs: number, toMs: number, excludedIds: string[]): Array<Record<string, unknown>> {
   return [
     { propertyName: "dato_gh", operator: "EQ", value: "true" },
     { propertyName: "categoria_de_venta", operator: "EQ", value: "Retail" },
     { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
     { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
-    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: excludedIds },
   ];
 }
 
@@ -275,6 +275,7 @@ const CROSS_CATEGORIES = ["Pago", "Organico", "Outbound"];
  */
 export async function fetchCrossData(fromMs: number, toMs: number): Promise<CrossDataRow[]> {
   const start = Date.now();
+  const excludedIds = await getExcludedOwnerIds();
   const map = new Map<string, { leads: number; converted: number }>();
   let totalContacts = 0;
   let totalPages = 0;
@@ -369,7 +370,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
       { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
       { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
       { propertyName: "categoria", operator: "EQ", value: categoria },
-      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+      { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: excludedIds },
     ]);
   }
 
@@ -380,7 +381,7 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
     { propertyName: "fecha_primera_asignacion", operator: "GTE", value: String(fromMs) },
     { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
     { propertyName: "categoria", operator: "NOT_HAS_PROPERTY" },
-    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS },
+    { propertyName: "hubspot_owner_id", operator: "NOT_IN", values: excludedIds },
   ]);
 
   const result: CrossDataRow[] = [];
@@ -398,33 +399,33 @@ export async function fetchCrossData(fromMs: number, toMs: number): Promise<Cros
 // ─── Query Functions ─────────────────────────────────────────
 
 /** Get total lead count. */
-async function getTotalLeads(fromMs: number, toMs: number): Promise<number> {
-  const { total } = await hubspotSearch(baseFilters(fromMs, toMs));
+async function getTotalLeads(fromMs: number, toMs: number, excludedIds: string[]): Promise<number> {
+  const { total } = await hubspotSearch(baseFilters(fromMs, toMs, excludedIds));
   return total;
 }
 
 /** Get count of leads with edad > MAX_AGE (to subtract). */
-async function getOverAgeCount(fromMs: number, toMs: number): Promise<number> {
+async function getOverAgeCount(fromMs: number, toMs: number, excludedIds: string[]): Promise<number> {
   const { total } = await hubspotSearch([
-    ...baseFilters(fromMs, toMs),
+    ...baseFilters(fromMs, toMs, excludedIds),
     { propertyName: "edad", operator: "GT", value: String(MAX_AGE) },
   ]);
   return total;
 }
 
 /** Get total converted leads. */
-async function getConvertedLeads(fromMs: number, toMs: number): Promise<number> {
+async function getConvertedLeads(fromMs: number, toMs: number, excludedIds: string[]): Promise<number> {
   const { total } = await hubspotSearch([
-    ...baseFilters(fromMs, toMs),
+    ...baseFilters(fromMs, toMs, excludedIds),
     { propertyName: "convertido", operator: "EQ", value: "true" },
   ]);
   return total;
 }
 
 /** Get count for a specific categoria. */
-async function getCategoriaCount(fromMs: number, toMs: number, categoria: string): Promise<number> {
+async function getCategoriaCount(fromMs: number, toMs: number, excludedIds: string[], categoria: string): Promise<number> {
   const { total } = await hubspotSearch([
-    ...baseFilters(fromMs, toMs),
+    ...baseFilters(fromMs, toMs, excludedIds),
     { propertyName: "categoria", operator: "EQ", value: categoria },
   ]);
   return total;
@@ -445,9 +446,9 @@ async function getCategoriaConverted(fromMs: number, toMs: number, categoria: st
 }
 
 /** Get count for a specific canal. */
-async function getCanalCount(fromMs: number, toMs: number, canal: string): Promise<number> {
+async function getCanalCount(fromMs: number, toMs: number, excludedIds: string[], canal: string): Promise<number> {
   const { total } = await hubspotSearch([
-    ...baseFilters(fromMs, toMs),
+    ...baseFilters(fromMs, toMs, excludedIds),
     { propertyName: "canal", operator: "EQ", value: canal },
   ]);
   return total;
@@ -471,13 +472,14 @@ async function getCanalConverted(fromMs: number, toMs: number, canal: string): P
 async function getTopCampanas(
   fromMs: number,
   toMs: number,
+  excludedIds: string[],
   campanaNames: string[],
 ): Promise<CampanaBreakdown[]> {
   const campanaResults = await Promise.all(
     campanaNames.map(async (name) => {
       const [total, converted] = await Promise.all([
         hubspotSearch([
-          ...baseFilters(fromMs, toMs),
+          ...baseFilters(fromMs, toMs, excludedIds),
           { propertyName: "campana", operator: "EQ", value: name },
         ]).then((r) => r.total),
         hubspotSearch([
@@ -506,9 +508,9 @@ async function getTopCampanas(
 }
 
 /** Discover top campaign names by fetching a sample of contacts. */
-async function discoverTopCampanas(fromMs: number, toMs: number): Promise<string[]> {
+async function discoverTopCampanas(fromMs: number, toMs: number, excludedIds: string[]): Promise<string[]> {
   // Fetch 100 contacts and count campaign frequency
-  const { results } = await hubspotSearch(baseFilters(fromMs, toMs), ["campana"], 100);
+  const { results } = await hubspotSearch(baseFilters(fromMs, toMs, excludedIds), ["campana"], 100);
 
   const freq = new Map<string, number>();
   for (const c of results) {
@@ -538,12 +540,13 @@ export async function fetchLeadsData(
   const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
 
   const start = Date.now();
+  const excludedIds = await getExcludedOwnerIds();
 
   // ── Batch 1: Totals ────────────────────────────────────────
   const [rawTotal, overAge, converted] = await Promise.all([
-    getTotalLeads(fromMs, toMs),
-    getOverAgeCount(fromMs, toMs),
-    getConvertedLeads(fromMs, toMs),
+    getTotalLeads(fromMs, toMs, excludedIds),
+    getOverAgeCount(fromMs, toMs, excludedIds),
+    getConvertedLeads(fromMs, toMs, excludedIds),
   ]);
 
   const total = rawTotal - overAge;
@@ -552,9 +555,9 @@ export async function fetchLeadsData(
   const categorias = ["Pago", "Organico", "Outbound"];
 
   const [catCounts, catConverted, canalCounts, canalConverted] = await Promise.all([
-    Promise.all(categorias.map((c) => getCategoriaCount(fromMs, toMs, c))),
+    Promise.all(categorias.map((c) => getCategoriaCount(fromMs, toMs, excludedIds, c))),
     Promise.all(categorias.map((c) => getCategoriaConverted(fromMs, toMs, c))),
-    Promise.all(ALL_CANALES.map((c) => getCanalCount(fromMs, toMs, c))),
+    Promise.all(ALL_CANALES.map((c) => getCanalCount(fromMs, toMs, excludedIds, c))),
     Promise.all(ALL_CANALES.map((c) => getCanalConverted(fromMs, toMs, c))),
   ]);
 
@@ -592,8 +595,8 @@ export async function fetchLeadsData(
     .sort((a, b) => b.count - a.count);
 
   // ── Batch 3: Top campaigns ─────────────────────────────────
-  const campanaNames = await discoverTopCampanas(fromMs, toMs);
-  const topCampanas = await getTopCampanas(fromMs, toMs, campanaNames);
+  const campanaNames = await discoverTopCampanas(fromMs, toMs, excludedIds);
+  const topCampanas = await getTopCampanas(fromMs, toMs, excludedIds, campanaNames);
 
   // ── Batch 4: Previous period comparison (if provided) ──────
   let previousPeriod: PeriodComparison | null = null;
@@ -602,9 +605,9 @@ export async function fetchLeadsData(
     const prevToMs = new Date(`${previousTo}T23:59:59.999Z`).getTime();
 
     const [prevRaw, prevOverAge, prevConverted] = await Promise.all([
-      getTotalLeads(prevFromMs, prevToMs),
-      getOverAgeCount(prevFromMs, prevToMs),
-      getConvertedLeads(prevFromMs, prevToMs),
+      getTotalLeads(prevFromMs, prevToMs, excludedIds),
+      getOverAgeCount(prevFromMs, prevToMs, excludedIds),
+      getConvertedLeads(prevFromMs, prevToMs, excludedIds),
     ]);
 
     const prevTotal = prevRaw - prevOverAge;
@@ -733,6 +736,7 @@ export async function fetchBreakdown(
 ): Promise<BreakdownResponse> {
   const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
   const toMs = new Date(`${to}T23:59:59.999Z`).getTime();
+  const excludedIds = await getExcludedOwnerIds();
 
   const parentEntries = Object.entries(parentFilters);
   const parentFilterCount = parentEntries.length;
@@ -750,7 +754,7 @@ export async function fetchBreakdown(
       { propertyName: "fecha_primera_asignacion", operator: "LTE", value: String(toMs) },
     ];
     if (useOwnerFilter) {
-      f.push({ propertyName: "hubspot_owner_id", operator: "NOT_IN", values: EXCLUDED_OWNER_IDS });
+      f.push({ propertyName: "hubspot_owner_id", operator: "NOT_IN", values: excludedIds });
     }
     for (const [prop, val] of parentEntries) {
       f.push({ propertyName: prop, operator: "EQ", value: val });

@@ -1,13 +1,11 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { EXCLUDED_OWNER_IDS } from "../../_lib/constants.js";
+import { setExcludedOwnerIds } from "../../_lib/edge-config.js";
 
 /**
  * PUT /api/dashboard/config/excluded-owners
  *
- * In the Express server this persists in-memory. On Vercel serverless,
- * functions are stateless so runtime mutations don't persist. This endpoint
- * accepts the request and returns success for frontend compatibility,
- * but the canonical list remains in constants.ts.
+ * Persists excluded owner IDs to Vercel Edge Config so they survive
+ * across serverless invocations and are read at ~1ms latency.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -50,10 +48,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // On Vercel serverless, acknowledge the request but note that
-  // runtime state cannot persist between invocations.
-  res.json({
-    excludedOwnerIds: body.excludedOwnerIds,
-    cacheCleared: true,
-  });
+  try {
+    await setExcludedOwnerIds(body.excludedOwnerIds);
+    res.json({
+      excludedOwnerIds: body.excludedOwnerIds,
+      cacheCleared: true,
+    });
+  } catch (err) {
+    console.error("[excluded-owners] Edge Config write failed:", err);
+    res.status(500).json({
+      error: {
+        code: "EDGE_CONFIG_WRITE_FAILED",
+        message: err instanceof Error ? err.message : "Failed to persist exclusions",
+      },
+    });
+  }
 }
